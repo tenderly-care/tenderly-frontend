@@ -11,7 +11,11 @@ import {
   Cog6ToothIcon,
   ArrowRightOnRectangleIcon,
   Bars3Icon,
-  XMarkIcon
+  XMarkIcon,
+  UserGroupIcon,
+  AcademicCapIcon,
+  ChartBarIcon,
+  BellIcon
 } from '@heroicons/react/24/outline';
 
 interface LayoutProps {
@@ -19,12 +23,12 @@ interface LayoutProps {
 }
 
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
-  const { user, logout } = useAuth();
+  const { user, logout, isDoctor, isPatient } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const navigation = [
+  const patientNavigation = [
     { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
     { name: 'Consultations', href: '/consultation', icon: ChatBubbleLeftRightIcon },
     { name: 'Payments', href: '/payment', icon: CreditCardIcon },
@@ -32,6 +36,18 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     { name: 'Schedule', href: '/schedule', icon: CalendarIcon },
     { name: 'Profile', href: '/profile', icon: UserIcon },
   ];
+
+  const doctorNavigation = [
+    { name: 'Dashboard', href: '/doctor/dashboard', icon: HomeIcon },
+    { name: 'Patients', href: '/patients', icon: UserGroupIcon },
+    { name: 'Consultations', href: '/consultations', icon: ChatBubbleLeftRightIcon },
+    { name: 'Prescriptions', href: '/prescriptions', icon: DocumentTextIcon },
+    { name: 'Schedule', href: '/schedule', icon: CalendarIcon },
+    { name: 'Analytics', href: '/analytics', icon: ChartBarIcon },
+    { name: 'Profile', href: '/doctor/profile', icon: UserIcon },
+  ];
+
+  const navigation = isDoctor() ? doctorNavigation : patientNavigation;
 
   const handleLogout = () => {
     logout();
@@ -50,7 +66,9 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         <div className="fixed inset-y-0 left-0 flex w-64 flex-col bg-white">
           <div className="flex h-16 items-center justify-between px-4">
             <div className="flex items-center">
-              <div className="text-2xl font-bold text-blue-600">🏥 Tenderly</div>
+              <div className="text-2xl font-bold text-blue-600">
+                {isDoctor() ? '🏥 Tenderly Doctor' : '🏥 Tenderly'}
+              </div>
             </div>
             <button
               onClick={() => setSidebarOpen(false)}
@@ -87,9 +105,12 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
               </div>
               <div className="ml-3">
                 <p className="text-sm font-medium text-gray-700">
-                  {user?.firstName} {user?.lastName}
+                  {isDoctor() ? `Dr. ${user?.lastName}` : `${user?.firstName} ${user?.lastName}`}
                 </p>
                 <p className="text-xs text-gray-500">{user?.email}</p>
+                {isDoctor() && (
+                  <p className="text-xs text-blue-600 font-medium">Healthcare Provider</p>
+                )}
               </div>
             </div>
             <button
@@ -107,7 +128,9 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       <div className="hidden lg:fixed lg:inset-y-0 lg:flex lg:w-64 lg:flex-col">
         <div className="flex flex-col flex-grow bg-white border-r border-gray-200">
           <div className="flex h-16 items-center px-4">
-            <div className="text-2xl font-bold text-blue-600">🏥 Tenderly</div>
+            <div className="text-2xl font-bold text-blue-600">
+              {isDoctor() ? '🏥 Tenderly Doctor' : '🏥 Tenderly'}
+            </div>
           </div>
           <nav className="flex-1 space-y-1 px-2 py-4">
             {navigation.map((item) => (
@@ -136,9 +159,12 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
               </div>
               <div className="ml-3">
                 <p className="text-sm font-medium text-gray-700">
-                  {user?.firstName} {user?.lastName}
+                  {isDoctor() ? `Dr. ${user?.lastName}` : `${user?.firstName} ${user?.lastName}`}
                 </p>
                 <p className="text-xs text-gray-500">{user?.email}</p>
+                {isDoctor() && (
+                  <p className="text-xs text-blue-600 font-medium">Healthcare Provider</p>
+                )}
               </div>
             </div>
             <button
@@ -168,28 +194,29 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             <div className="flex flex-1"></div>
             <div className="flex items-center gap-x-4 lg:gap-x-6">
               {/* Notifications */}
-              <button className="text-gray-400 hover:text-gray-500">
+              <button className="text-gray-400 hover:text-gray-500 relative">
                 <span className="sr-only">View notifications</span>
-                <div className="h-6 w-6 rounded-full bg-gray-100 flex items-center justify-center">
-                  <span className="text-xs font-medium text-gray-600">3</span>
-                </div>
+                <BellIcon className="h-6 w-6" />
+                <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-red-500 text-xs text-white flex items-center justify-center">
+                  3
+                </span>
               </button>
 
               {/* Profile dropdown */}
               <div className="flex items-center gap-x-4 lg:gap-x-6">
-                <div className="hidden lg:block lg:h-6 lg:w-px lg:bg-gray-200" />
-                <div className="flex items-center gap-x-4">
-                  <div className="hidden sm:flex sm:flex-col sm:items-end">
-                    <p className="text-sm font-medium text-gray-700">
-                      {user?.firstName} {user?.lastName}
-                    </p>
-                    <p className="text-xs text-gray-500">{user?.email}</p>
-                  </div>
-                  <div className="h-8 w-8 rounded-full bg-blue-600 flex items-center justify-center">
-                    <span className="text-sm font-medium text-white">
-                      {user?.firstName?.charAt(0) || 'U'}
-                    </span>
-                  </div>
+                <div className="hidden sm:flex sm:flex-col sm:items-end">
+                  <p className="text-sm font-medium text-gray-700">
+                    {isDoctor() ? `Dr. ${user?.lastName}` : `${user?.firstName} ${user?.lastName}`}
+                  </p>
+                  <p className="text-xs text-gray-500">{user?.email}</p>
+                  {isDoctor() && (
+                    <p className="text-xs text-blue-600 font-medium">Healthcare Provider</p>
+                  )}
+                </div>
+                <div className="h-8 w-8 rounded-full bg-blue-600 flex items-center justify-center">
+                  <span className="text-sm font-medium text-white">
+                    {user?.firstName?.charAt(0) || 'U'}
+                  </span>
                 </div>
               </div>
             </div>

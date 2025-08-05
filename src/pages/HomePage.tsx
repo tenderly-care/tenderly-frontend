@@ -7,7 +7,11 @@ import {
   ClockIcon, 
   ShieldCheckIcon,
   ArrowRightIcon,
-  PlayIcon
+  PlayIcon,
+  AcademicCapIcon,
+  UserGroupIcon,
+  ChartBarIcon,
+  CurrencyDollarIcon
 } from '@heroicons/react/24/outline';
 
 export const HomePage: React.FC = () => {
@@ -60,6 +64,29 @@ export const HomePage: React.FC = () => {
       price: '₹300',
       description: 'Urgent care for critical health situations',
       features: ['Priority access', 'Immediate response', 'Emergency protocols'],
+    },
+  ];
+
+  const doctorFeatures = [
+    {
+      icon: UserGroupIcon,
+      title: 'Patient Management',
+      description: 'Efficiently manage your patient records and consultation history.',
+    },
+    {
+      icon: ChartBarIcon,
+      title: 'Practice Analytics',
+      description: 'Track your practice performance with detailed analytics and insights.',
+    },
+    {
+      icon: CurrencyDollarIcon,
+      title: 'Revenue Tracking',
+      description: 'Monitor your earnings and manage payments seamlessly.',
+    },
+    {
+      icon: AcademicCapIcon,
+      title: 'Professional Growth',
+      description: 'Expand your practice and reach more patients nationwide.',
     },
   ];
 
@@ -158,27 +185,11 @@ export const HomePage: React.FC = () => {
                   <p className="mt-2 text-sm text-gray-600">{type.description}</p>
                   <ul className="mt-6 space-y-2">
                     {type.features.map((feature) => (
-                      <li key={feature} className="text-sm text-gray-600 flex items-center">
-                        <div className="h-2 w-2 bg-blue-600 rounded-full mr-2" />
-                        {feature}
+                      <li key={feature} className="text-sm text-gray-600">
+                        ✓ {feature}
                       </li>
                     ))}
                   </ul>
-                  {isAuthenticated ? (
-                    <Link
-                      to="/consultation"
-                      className="mt-6 btn-primary w-full"
-                    >
-                      Book Now
-                    </Link>
-                  ) : (
-                    <Link
-                      to="/register"
-                      className="mt-6 btn-primary w-full"
-                    >
-                      Get Started
-                    </Link>
-                  )}
                 </div>
               </div>
             ))}
@@ -186,33 +197,75 @@ export const HomePage: React.FC = () => {
         </div>
       </div>
 
-      {/* CTA Section */}
-      <div className="bg-blue-600">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+      {/* Healthcare Providers Section */}
+      <div className="py-24 bg-gradient-to-br from-blue-50 to-indigo-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center">
-            <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
-              Ready to Get Started?
+            <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
+              For Healthcare Providers
             </h2>
-            <p className="mt-4 text-lg text-blue-100">
-              Join thousands of patients who trust Tenderly for their healthcare needs.
+            <p className="mt-4 text-lg text-gray-600">
+              Join our platform and expand your practice with our comprehensive telemedicine tools.
             </p>
-            <div className="mt-8">
-              {isAuthenticated ? (
-                <Link
-                  to="/consultation"
-                  className="bg-white text-blue-600 hover:bg-gray-100 px-8 py-3 rounded-lg font-semibold text-lg"
-                >
-                  Start Consultation
-                </Link>
-              ) : (
-                <Link
-                  to="/register"
-                  className="bg-white text-blue-600 hover:bg-gray-100 px-8 py-3 rounded-lg font-semibold text-lg"
-                >
-                  Create Account
-                </Link>
-              )}
+          </div>
+          <div className="mt-20 grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-4">
+            {doctorFeatures.map((feature) => (
+              <div key={feature.title} className="text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-blue-600">
+                  <feature.icon className="h-6 w-6 text-white" />
+                </div>
+                <h3 className="mt-6 text-lg font-semibold text-gray-900">
+                  {feature.title}
+                </h3>
+                <p className="mt-2 text-sm text-gray-600">
+                  {feature.description}
+                </p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-12 text-center">
+            <div className="flex items-center justify-center gap-x-6">
+              <Link
+                to="/doctor/register"
+                className="btn-primary text-lg px-8 py-3"
+              >
+                Join as Healthcare Provider
+                <ArrowRightIcon className="ml-2 h-5 w-5" />
+              </Link>
+              <Link
+                to="/doctor/login"
+                className="btn-secondary text-lg px-8 py-3"
+              >
+                Sign In as Provider
+              </Link>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* CTA Section */}
+      <div className="py-24 bg-blue-600">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+          <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
+            Ready to Get Started?
+          </h2>
+          <p className="mt-4 text-lg text-blue-100">
+            Join thousands of patients and healthcare providers who trust Tenderly for their healthcare needs.
+          </p>
+          <div className="mt-10 flex items-center justify-center gap-x-6">
+            <Link
+              to="/register"
+              className="bg-white text-blue-600 hover:bg-gray-100 text-lg px-8 py-3 rounded-lg font-medium transition-colors"
+            >
+              Get Started Today
+              <ArrowRightIcon className="ml-2 h-5 w-5 inline" />
+            </Link>
+            <Link
+              to="/login"
+              className="text-white border border-white hover:bg-white hover:text-blue-600 text-lg px-8 py-3 rounded-lg font-medium transition-colors"
+            >
+              Sign In
+            </Link>
           </div>
         </div>
       </div>

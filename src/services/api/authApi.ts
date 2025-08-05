@@ -1,19 +1,16 @@
 import axios from 'axios';
-import { User, RegisterData } from '../../contexts/AuthContext';
-import config from '../../config/env';
+import { config } from '../../config/env';
 
-const API_BASE_URL = config.API_URL;
-
-// Create axios instance with default config
-const apiClient = axios.create({
-  baseURL: API_BASE_URL,
+// Create axios instance with base configuration
+const api = axios.create({
+  baseURL: config.apiUrl,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
 // Request interceptor to add auth token
-apiClient.interceptors.request.use(
+api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
     if (token) {
@@ -26,29 +23,35 @@ apiClient.interceptors.request.use(
   }
 );
 
-// Response interceptor to handle token refresh
-apiClient.interceptors.response.use(
-  (response) => response,
+// Response interceptor to handle token refresh and errors
+api.interceptors.response.use(
+  (response) => {
+    return response;
+  },
   async (error) => {
     const originalRequest = error.config;
 
+    // If 401 and we haven't tried to refresh yet
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
 
       try {
         const refreshToken = localStorage.getItem('refreshToken');
         if (refreshToken) {
-          const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
+          const response = await api.post('/auth/refresh', {
             refreshToken,
           });
-          
-          const { accessToken } = response.data;
+
+          const { accessToken, refreshToken: newRefreshToken } = response.data;
           localStorage.setItem('token', accessToken);
-          
+          localStorage.setItem('refreshToken', newRefreshToken);
+
+          // Retry the original request
           originalRequest.headers.Authorization = `Bearer ${accessToken}`;
-          return apiClient(originalRequest);
+          return api(originalRequest);
         }
       } catch (refreshError) {
+        // Refresh failed, redirect to login
         localStorage.removeItem('token');
         localStorage.removeItem('refreshToken');
         window.location.href = '/login';
@@ -59,125 +62,243 @@ apiClient.interceptors.response.use(
   }
 );
 
-export interface LoginResponse {
-  user: User;
-  accessToken: string;
+// Types
+export interface LoginRequest {
+  email: string;
+  password: string;
+  mfaCode?: string;
+  rememberDevice?: boolean;
+  userAgent?: string;
+  deviceFingerprint?: string;
+  location?: string;
+}
+
+export interface RegisterRequest {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
+  role?: string;
+  medicalLicenseNumber?: string;
+  specializations?: string[];
+  userAgent?: string;
+  deviceFingerprint?: string;
+}
+
+export interface AuthResponse {
+  accessToken: string | null;
+  refreshToken: string | null;
+  expiresIn: number;
+  user: {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    roles: string[];
+    accountStatus: string;
+    isEmailVerified: boolean;
+    isMFAEnabled: boolean;
+    requiresMFA: boolean;
+  };
+  requiresMFA?: boolean;
+  mfaMethods?: string[];
+}
+
+export interface RefreshTokenRequest {
   refreshToken: string;
-  requiresMFA: boolean;
+  deviceFingerprint?: string;
 }
 
-export interface RegisterResponse {
-  user: User;
-  accessToken: string;
-  refreshToken: string;
-  requiresEmailVerification: boolean;
+export interface VerifyEmailRequest {
+  token: string;
 }
 
-export interface TokenVerificationResponse {
-  user: User;
-  isValid: boolean;
+export interface ForgotPasswordRequest {
+  email: string;
 }
 
+export interface ResetPasswordRequest {
+  token: string;
+  newPassword: string;
+}
+
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+
+// API functions
 export const authApi = {
-  // Login user
-  login: async (email: string, password: string): Promise<LoginResponse> => {
-    const response = await apiClient.post('/auth/login', {
-      email,
-      password,
-    });
-    return response.data;
+  /**
+   * Login user
+   */
+  async login(loginData: LoginRequest): Promise<AuthResponse> {
+    try {
+      const response = await api.post<AuthResponse>('/auth/login', {
+        ...loginData,
+        userAgent: navigator.userAgent,
+        deviceFingerprint: this.generateDeviceFingerprint(),
+        location: 'Unknown', // In production, get from IP geolocation
+      });
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 401) {
+        throw new Error(error.response.data?.message || 'Invalid credentials');
+      }
+      throw new Error(error.response?.data?.message || 'Login failed');
+    }
   },
 
-  // Register new user
-  register: async (userData: RegisterData): Promise<RegisterResponse> => {
-    const response = await apiClient.post('/auth/register', userData);
-    return response.data;
+  /**
+   * Register user
+   */
+  async register(registerData: RegisterRequest): Promise<AuthResponse> {
+    try {
+      const response = await api.post<AuthResponse>('/auth/register', {
+        ...registerData,
+        userAgent: navigator.userAgent,
+        deviceFingerprint: this.generateDeviceFingerprint(),
+      });
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 409) {
+        throw new Error('User with this email or phone already exists');
+      }
+      if (error.response?.status === 400) {
+        const message = error.response.data?.message || 'Registration failed';
+        throw new Error(message);
+      }
+      throw new Error(error.response?.data?.message || 'Registration failed');
+    }
   },
 
-  // Verify email
-  verifyEmail: async (token: string): Promise<{ success: boolean; message: string }> => {
-    const response = await apiClient.post('/auth/verify-email', { token });
-    return response.data;
+  /**
+   * Refresh access token
+   */
+  async refreshToken(refreshData: RefreshTokenRequest): Promise<AuthResponse> {
+    try {
+      const response = await api.post<AuthResponse>('/auth/refresh', refreshData);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Token refresh failed');
+    }
   },
 
-  // Resend verification email
-  resendVerificationEmail: async (email: string): Promise<{ success: boolean; message: string }> => {
-    const response = await apiClient.post('/auth/resend-verification', { email });
-    return response.data;
+  /**
+   * Logout user
+   */
+  async logout(refreshToken?: string, allDevices?: boolean): Promise<void> {
+    try {
+      await api.post('/auth/logout', {
+        refreshToken,
+        allDevices,
+      });
+    } catch (error: any) {
+      // Even if logout fails, clear local tokens
+      console.error('Logout error:', error);
+    } finally {
+      localStorage.removeItem('token');
+      localStorage.removeItem('refreshToken');
+    }
   },
 
-  // Forgot password
-  forgotPassword: async (email: string): Promise<{ success: boolean; message: string }> => {
-    const response = await apiClient.post('/auth/forgot-password', { email });
-    return response.data;
+  /**
+   * Get current user profile
+   */
+  async getProfile(): Promise<any> {
+    try {
+      const response = await api.get('/auth/me');
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to get profile');
+    }
   },
 
-  // Reset password
-  resetPassword: async (token: string, newPassword: string): Promise<{ success: boolean; message: string }> => {
-    const response = await apiClient.post('/auth/reset-password', {
-      token,
-      newPassword,
-    });
-    return response.data;
+  /**
+   * Verify email
+   */
+  async verifyEmail(verifyData: VerifyEmailRequest): Promise<{ message: string }> {
+    try {
+      const response = await api.post<{ message: string }>('/auth/verify-email', verifyData);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Email verification failed');
+    }
   },
 
-  // Change password
-  changePassword: async (currentPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> => {
-    const response = await apiClient.post('/auth/change-password', {
-      currentPassword,
-      newPassword,
-    });
-    return response.data;
+  /**
+   * Forgot password
+   */
+  async forgotPassword(forgotData: ForgotPasswordRequest): Promise<{ message: string }> {
+    try {
+      const response = await api.post<{ message: string }>('/auth/forgot-password', forgotData);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Forgot password failed');
+    }
   },
 
-  // Refresh token
-  refreshToken: async (): Promise<LoginResponse> => {
-    const refreshToken = localStorage.getItem('refreshToken');
-    const response = await apiClient.post('/auth/refresh', {
-      refreshToken,
-    });
-    return response.data;
+  /**
+   * Reset password
+   */
+  async resetPassword(resetData: ResetPasswordRequest): Promise<{ message: string }> {
+    try {
+      const response = await api.post<{ message: string }>('/auth/reset-password', resetData);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Password reset failed');
+    }
   },
 
-  // Verify token
-  verifyToken: async (): Promise<TokenVerificationResponse> => {
-    const response = await apiClient.get('/auth/verify');
-    return response.data;
+  /**
+   * Change password
+   */
+  async changePassword(changeData: ChangePasswordRequest): Promise<{ message: string }> {
+    try {
+      const response = await api.post<{ message: string }>('/auth/change-password', changeData);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Password change failed');
+    }
   },
 
-  // Logout
-  logout: async (): Promise<{ success: boolean; message: string }> => {
-    const response = await apiClient.post('/auth/logout');
-    return response.data;
+  /**
+   * Setup MFA
+   */
+  async setupMFA(method: 'sms' | 'email' | 'authenticator'): Promise<any> {
+    try {
+      const response = await api.post('/auth/setup-mfa', { method });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'MFA setup failed');
+    }
   },
 
-  // MFA setup
-  setupMFA: async (): Promise<{ qrCode: string; secret: string }> => {
-    const response = await apiClient.post('/auth/mfa/setup');
-    return response.data;
+  /**
+   * Verify MFA setup
+   */
+  async verifyMFASetup(code: string, method: 'sms' | 'email' | 'authenticator'): Promise<{ message: string }> {
+    try {
+      const response = await api.post<{ message: string }>('/auth/verify-mfa-setup', { code, method });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'MFA verification failed');
+    }
   },
 
-  // MFA verify
-  verifyMFA: async (code: string): Promise<{ success: boolean; message: string }> => {
-    const response = await apiClient.post('/auth/mfa/verify', { code });
-    return response.data;
-  },
-
-  // MFA disable
-  disableMFA: async (code: string): Promise<{ success: boolean; message: string }> => {
-    const response = await apiClient.post('/auth/mfa/disable', { code });
-    return response.data;
-  },
-
-  // Get user profile
-  getProfile: async (): Promise<User> => {
-    const response = await apiClient.get('/auth/profile');
-    return response.data;
-  },
-
-  // Update user profile
-  updateProfile: async (profileData: Partial<User>): Promise<User> => {
-    const response = await apiClient.patch('/auth/profile', profileData);
-    return response.data;
+  /**
+   * Generate device fingerprint
+   */
+  generateDeviceFingerprint(): string {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.textBaseline = 'top';
+      ctx.font = '14px Arial';
+      ctx.fillText('Device fingerprint', 2, 2);
+      return canvas.toDataURL();
+    }
+    return 'unknown';
   },
 }; 

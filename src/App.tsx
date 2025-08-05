@@ -10,7 +10,10 @@ import { ErrorBoundary } from 'react-error-boundary';
 import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/auth/LoginPage';
 import { RegisterPage } from './pages/auth/RegisterPage';
+import { DoctorRegisterPage } from './pages/auth/DoctorRegisterPage';
+import { DoctorLoginPage } from './pages/auth/DoctorLoginPage';
 import { DashboardPage } from './pages/dashboard/DashboardPage';
+import { DoctorDashboardPage } from './pages/dashboard/DoctorDashboardPage';
 import { ConsultationPage } from './pages/consultation/ConsultationPage';
 import { SymptomCollectionPage } from './pages/consultation/SymptomCollectionPage';
 import { PaymentPage } from './pages/payment/PaymentPage';
@@ -58,8 +61,10 @@ function App() {
               <Route path="/" element={<HomePage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
+              <Route path="/doctor/register" element={<DoctorRegisterPage />} />
+              <Route path="/doctor/login" element={<DoctorLoginPage />} />
               
-              {/* Protected Routes */}
+              {/* Protected Patient Routes */}
               <Route
                 path="/dashboard"
                 element={
@@ -121,6 +126,18 @@ function App() {
                   <ProtectedRoute>
                     <Layout>
                       <ProfilePage />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Protected Doctor Routes */}
+              <Route
+                path="/doctor/dashboard"
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <DoctorDashboardPage />
                     </Layout>
                   </ProtectedRoute>
                 }
