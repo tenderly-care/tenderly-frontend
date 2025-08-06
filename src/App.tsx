@@ -12,6 +12,7 @@ import { LoginPage } from './pages/auth/LoginPage';
 import { RegisterPage } from './pages/auth/RegisterPage';
 import { DoctorRegisterPage } from './pages/auth/DoctorRegisterPage';
 import { DoctorLoginPage } from './pages/auth/DoctorLoginPage';
+import { MFASetupPage } from './pages/auth/MFASetupPage';
 import { DashboardPage } from './pages/dashboard/DashboardPage';
 import { DoctorDashboardPage } from './pages/dashboard/DoctorDashboardPage';
 import { ConsultationPage } from './pages/consultation/ConsultationPage';
@@ -63,6 +64,7 @@ function App() {
               <Route path="/register" element={<RegisterPage />} />
               <Route path="/doctor/register" element={<DoctorRegisterPage />} />
               <Route path="/doctor/login" element={<DoctorLoginPage />} />
+              <Route path="/mfa/setup" element={<MFASetupPage />} />
               
               {/* Protected Patient Routes */}
               <Route

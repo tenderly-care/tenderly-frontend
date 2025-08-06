@@ -129,6 +129,31 @@ export const validatePasswordStrength = (password: string): PasswordStrength => 
 };
 
 /**
+ * Calculate password strength score (0-5)
+ * Used for real-time password strength indicator
+ */
+export const calculatePasswordStrength = (password: string): number => {
+  if (!password) return 0;
+  
+  let score = 0;
+  
+  // Length check
+  if (password.length >= 8) score += 1;
+  if (password.length >= 12) score += 0.5;
+  
+  // Character variety checks
+  if (/[a-z]/.test(password)) score += 1;
+  if (/[A-Z]/.test(password)) score += 1;
+  if (/[0-9]/.test(password)) score += 1;
+  if (/[@$!%*?&]/.test(password)) score += 1;
+  
+  // Additional complexity bonus
+  if (password.length >= 16) score += 0.5;
+  
+  return Math.min(Math.floor(score), 5);
+};
+
+/**
  * Password validation
  */
 export const validatePassword = (password: string): ValidationResult => {

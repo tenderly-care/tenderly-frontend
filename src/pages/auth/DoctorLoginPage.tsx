@@ -169,6 +169,15 @@ export const DoctorLoginPage: React.FC = () => {
                 Sign in as a patient
               </Link>
             </p>
+            <p className="text-sm text-gray-600 mt-2">
+              Need to set up MFA?{' '}
+              <Link
+                to="/mfa/setup"
+                className="font-medium text-blue-600 hover:text-blue-500"
+              >
+                Set up MFA
+              </Link>
+            </p>
           </div>
         </div>
       </div>

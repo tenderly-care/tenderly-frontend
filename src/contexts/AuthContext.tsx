@@ -12,6 +12,7 @@ export interface User {
   roles: string[];
   isEmailVerified: boolean;
   requiresMFA: boolean;
+  isMFAEnabled: boolean;
   accountStatus: string;
   professionalInfo?: {
     medicalLicenseNumber?: string;
@@ -34,6 +35,7 @@ export interface AuthState {
   error: string | null;
   requiresMFA: boolean;
   tempAuthData: any | null;
+  pendingMFASetup: boolean;
 }
 
 export interface AuthContextType extends AuthState {
@@ -46,6 +48,8 @@ export interface AuthContextType extends AuthState {
   isDoctor: () => boolean;
   isPatient: () => boolean;
   setRequiresMFA: (requires: boolean, tempData?: any) => void;
+  setPendingMFASetup: (pending: boolean, userData?: any) => void;
+  getTempCredentials: () => { email?: string; password?: string } | null;
 }
 
 export interface RegisterData {
@@ -76,7 +80,8 @@ type AuthAction =
   | { type: 'LOGOUT' }
   | { type: 'CLEAR_ERROR' }
   | { type: 'SET_LOADING'; payload: boolean }
-  | { type: 'SET_REQUIRES_MFA'; payload: { requires: boolean; tempData?: any } };
+  | { type: 'SET_REQUIRES_MFA'; payload: { requires: boolean; tempData?: any } }
+  | { type: 'SET_PENDING_MFA_SETUP'; payload: { pending: boolean; userData?: any } };
 
 // Initial State
 const initialState: AuthState = {
@@ -87,6 +92,7 @@ const initialState: AuthState = {
   error: null,
   requiresMFA: false,
   tempAuthData: null,
+  pendingMFASetup: false,
 };
 
 // Reducer
@@ -108,6 +114,7 @@ const authReducer = (state: AuthState, action: AuthAction): AuthState => {
         error: null,
         requiresMFA: false,
         tempAuthData: null,
+        pendingMFASetup: false,
       };
     case 'AUTH_FAILURE':
       return {
@@ -119,6 +126,7 @@ const authReducer = (state: AuthState, action: AuthAction): AuthState => {
         error: action.payload,
         requiresMFA: false,
         tempAuthData: null,
+        pendingMFASetup: false,
       };
     case 'LOGOUT':
       return {
@@ -130,6 +138,7 @@ const authReducer = (state: AuthState, action: AuthAction): AuthState => {
         error: null,
         requiresMFA: false,
         tempAuthData: null,
+        pendingMFASetup: false,
       };
     case 'CLEAR_ERROR':
       return {
@@ -146,6 +155,15 @@ const authReducer = (state: AuthState, action: AuthAction): AuthState => {
         ...state,
         requiresMFA: action.payload.requires,
         tempAuthData: action.payload.tempData || null,
+      };
+    case 'SET_PENDING_MFA_SETUP':
+      return {
+        ...state,
+        pendingMFASetup: action.payload.pending,
+        user: action.payload.userData || null,
+        token: action.payload.userData ? 'temp_mfa_setup' : null,
+        isAuthenticated: action.payload.pending,
+        tempAuthData: action.payload.tempCredentials ? { tempCredentials: action.payload.tempCredentials } : null,
       };
     default:
       return state;
@@ -164,7 +182,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const checkAuth = async () => {
       const token = localStorage.getItem('token');
-      if (token) {
+      if (token && token !== 'temp_mfa_setup') {
         try {
           dispatch({ type: 'AUTH_START' });
           const response = await authApi.getProfile();
@@ -185,7 +203,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Update localStorage when token changes
   useEffect(() => {
-    if (state.token) {
+    if (state.token && state.token !== 'temp_mfa_setup') {
       localStorage.setItem('token', state.token);
     } else {
       localStorage.removeItem('token');
@@ -199,8 +217,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Call the real backend API
       const response = await authApi.login({ email, password });
       
-      // Check if MFA is required
+      console.log('Login response received:', response);
+      
+      // Check if MFA setup is required (new backend format)
+      if (response.requiresMFASetup) {
+        console.log('MFA setup required from response');
+        
+        // Store temporary token if provided
+        if (response.temporaryToken) {
+          console.log('Storing temporary token from backend');
+          localStorage.setItem('token', response.temporaryToken);
+        }
+        
+        dispatch({ 
+          type: 'SET_PENDING_MFA_SETUP', 
+          payload: { 
+            pending: true, 
+            userData: { email, roles: ['healthcare_provider'] },
+            hasTemporaryToken: !!response.temporaryToken
+          } 
+        });
+        
+        toast(response.message || 'Please complete MFA setup to continue.', {
+          icon: 'ℹ️',
+          duration: 4000,
+        });
+        navigate('/mfa/setup');
+        return;
+      }
+      
+      // Check if MFA verification is required (existing user with MFA enabled)
       if (response.requiresMFA) {
+        console.log('MFA verification required from response');
         dispatch({ 
           type: 'SET_REQUIRES_MFA', 
           payload: { requires: true, tempData: response } 
@@ -212,6 +260,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (response.accessToken && response.refreshToken) {
         localStorage.setItem('token', response.accessToken);
         localStorage.setItem('refreshToken', response.refreshToken);
+        
+        console.log('Login successful!');
+        console.log('Access Token:', response.accessToken);
+        console.log('Refresh Token:', response.refreshToken);
+        console.log('User data:', response.user);
+        console.log('Full login response:', response);
         
         dispatch({
           type: 'AUTH_SUCCESS',
@@ -233,9 +287,116 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('Invalid response from server');
       }
     } catch (error: any) {
-      const errorMessage = error.message || 'Login failed';
-      dispatch({ type: 'AUTH_FAILURE', payload: errorMessage });
-      toast.error(errorMessage);
+      // Log the actual error for debugging
+      console.log('=== LOGIN ERROR DEBUG ===');
+      console.log('Error message:', error.message);
+      console.log('Error response data:', error.response?.data);
+      console.log('Error response status:', error.response?.status);
+      console.log('Error response headers:', error.response?.headers);
+      console.log('Full error object:', error);
+      console.log('Full error response object:', error.response);
+      console.log('=== END LOGIN ERROR DEBUG ===');
+      
+      // CRITICAL: We need to analyze the ACTUAL backend response structure
+      // The backend might be sending a different status code or message structure
+      
+      const errorStatus = error.response?.status;
+      const errorMessage = error.message;
+      const backendMessage = error.response?.data?.message;
+      const backendError = error.response?.data?.error;
+      
+      console.log('=== ERROR ANALYSIS ===');
+      console.log('- HTTP Status:', errorStatus);
+      console.log('- Error message (thrown):', errorMessage);
+      console.log('- Backend message:', backendMessage);
+      console.log('- Backend error:', backendError);
+      console.log('- Email being used:', email);
+      
+      // Check if this is specifically an MFA setup requirement
+      // Look for multiple indicators to be more precise
+      const mfaSetupKeywords = ['MFA setup', 'complete MFA setup', 'set up MFA', 'setup MFA'];
+      const containsMFASetup = mfaSetupKeywords.some(keyword => 
+        (errorMessage && errorMessage.includes(keyword)) ||
+        (backendMessage && backendMessage.includes(keyword))
+      );
+      
+      const isInvalidCredentials = errorStatus === 401 || 
+                                   (errorMessage && errorMessage.toLowerCase().includes('invalid')) ||
+                                   (errorMessage && errorMessage.toLowerCase().includes('credential')) ||
+                                   (backendMessage && backendMessage.toLowerCase().includes('invalid')) ||
+                                   (backendMessage && backendMessage.toLowerCase().includes('credential'));
+      
+      console.log('- Contains MFA Setup keywords:', containsMFASetup);
+      console.log('- Is Invalid Credentials:', isInvalidCredentials);
+      console.log('=== END ERROR ANALYSIS ===');
+      
+      // Now that backend is fixed, handle status codes correctly:
+      // 401 = Invalid credentials (wrong email/password)
+      // 403 = Valid credentials but MFA setup required
+      // 200 = Success (either complete login or requiresMFA for MFA verification)
+      
+      if (errorStatus === 403 && containsMFASetup) {
+        // Valid credentials but MFA setup is required (403 status)
+        console.log('✅ REDIRECTING TO MFA SETUP');
+        console.log('✅ Reason: Valid credentials, MFA setup required (403)');
+        console.log('✅ Backend message:', backendMessage);
+        console.log('✅ Full error response:', error.response?.data);
+        
+        // Check if the backend provided a temporary token for MFA setup
+        const tempToken = error.response?.data?.tempToken || 
+                         error.response?.data?.mfaSetupToken ||
+                         error.response?.data?.setupToken;
+        
+        if (tempToken) {
+          console.log('✅ Backend provided temporary MFA setup token');
+          // Store the temporary token
+          localStorage.setItem('token', tempToken);
+          
+          dispatch({ 
+            type: 'SET_PENDING_MFA_SETUP', 
+            payload: { 
+              pending: true, 
+              userData: { email, roles: ['healthcare_provider'] },
+              hasTempToken: true
+            } 
+          });
+        } else {
+          console.log('❌ No temporary token from backend. Backend needs to be updated.');
+          console.log('❌ Expected: 403 response should include tempToken/mfaSetupToken');
+          
+          // Store credentials as fallback (but this won\'t work with current backend)
+          dispatch({ 
+            type: 'SET_PENDING_MFA_SETUP', 
+            payload: { 
+              pending: true, 
+              userData: { email, roles: ['healthcare_provider'] },
+              tempCredentials: { email, password },
+              needsBackendFix: true
+            } 
+          });
+          
+          // Show error message explaining the issue
+          toast.error('Backend needs to provide temporary token for MFA setup. Please contact support.');
+        }
+        
+        // Redirect to MFA setup page
+        navigate('/mfa/setup');
+        return;
+      } else if (errorStatus === 401) {
+        // Invalid credentials (401 status)
+        console.log('❌ Invalid credentials - showing error message');
+        const displayMessage = backendMessage || 'Invalid email or password. Please try again.';
+        
+        dispatch({ type: 'AUTH_FAILURE', payload: displayMessage });
+        toast.error(displayMessage);
+      } else {
+        // Other errors
+        console.log('❌ Other error:', { status: errorStatus, message: errorMessage });
+        const displayMessage = backendMessage || errorMessage || 'Login failed';
+        
+        dispatch({ type: 'AUTH_FAILURE', payload: displayMessage });
+        toast.error(displayMessage);
+      }
     }
   };
 
@@ -255,6 +416,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (response.accessToken && response.refreshToken) {
         localStorage.setItem('token', response.accessToken);
         localStorage.setItem('refreshToken', response.refreshToken);
+        
+        console.log('MFA login successful!');
+        console.log('Access Token:', response.accessToken);
+        console.log('Refresh Token:', response.refreshToken);
+        console.log('User data:', response.user);
+        console.log('Full MFA login response:', response);
         
         dispatch({
           type: 'AUTH_SUCCESS',
@@ -299,6 +466,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const response = await authApi.register(registerData);
       
       console.log('Registration response:', response);
+      console.log('Access Token:', response.accessToken);
+      console.log('Refresh Token:', response.refreshToken);
+      console.log('User data:', response.user);
+      console.log('Full registration response:', response);
       
       // Don't automatically log in the user after registration
       // Instead, redirect to login page with success message
@@ -392,6 +563,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   };
 
+  const setPendingMFASetup = (pending: boolean, userData?: any) => {
+    dispatch({ 
+      type: 'SET_PENDING_MFA_SETUP', 
+      payload: { pending, userData } 
+    });
+  };
+
+  const getTempCredentials = () => {
+    // Return credentials stored in tempAuthData during pendingMFASetup
+    return state.tempAuthData?.tempCredentials || null;
+  };
+
   const value: AuthContextType = {
     ...state,
     login,
@@ -403,6 +586,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isDoctor,
     isPatient,
     setRequiresMFA,
+    setPendingMFASetup,
+    getTempCredentials,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

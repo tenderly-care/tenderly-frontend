@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { config } from '../../config/env';
+import config from '../../config/env';
 
 // Create axios instance with base configuration
 const api = axios.create({
@@ -13,7 +13,7 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
-    if (token) {
+    if (token && token !== 'temp_mfa_setup') {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
@@ -103,6 +103,9 @@ export interface AuthResponse {
   };
   requiresMFA?: boolean;
   mfaMethods?: string[];
+  requiresMFASetup?: boolean;     // NEW - Indicates MFA setup needed
+  temporaryToken?: string;        // NEW - Token for MFA setup access
+  message?: string;               // NEW - Context message
 }
 
 export interface RefreshTokenRequest {
@@ -143,10 +146,19 @@ export const authApi = {
       });
       return response.data;
     } catch (error: any) {
-      if (error.response?.status === 401) {
-        throw new Error(error.response.data?.message || 'Invalid credentials');
-      }
-      throw new Error(error.response?.data?.message || 'Login failed');
+      // Preserve the original error response information
+      const enhancedError: any = new Error(error.response?.data?.message || 'Login failed');
+      enhancedError.response = error.response;
+      enhancedError.status = error.response?.status;
+      
+      // Log for debugging
+      console.log('AuthAPI Error Details:');
+      console.log('- Original error:', error);
+      console.log('- Response status:', error.response?.status);
+      console.log('- Response data:', error.response?.data);
+      console.log('- Enhanced error message:', enhancedError.message);
+      
+      throw enhancedError;
     }
   },
 
@@ -264,11 +276,11 @@ export const authApi = {
   },
 
   /**
-   * Setup MFA
+   * Setup MFA for authenticated users
    */
   async setupMFA(method: 'sms' | 'email' | 'authenticator'): Promise<any> {
     try {
-      const response = await api.post('/auth/setup-mfa', { method });
+      const response = await api.post('/auth/mfa/setup', { method });
       return response.data;
     } catch (error: any) {
       throw new Error(error.response?.data?.message || 'MFA setup failed');
@@ -276,11 +288,48 @@ export const authApi = {
   },
 
   /**
-   * Verify MFA setup
+   * Setup MFA for users who need to authenticate with email/password
    */
-  async verifyMFASetup(code: string, method: 'sms' | 'email' | 'authenticator'): Promise<{ message: string }> {
+  async setupMFAWithCredentials(method: 'sms' | 'email' | 'authenticator', email: string, password: string): Promise<any> {
     try {
-      const response = await api.post<{ message: string }>('/auth/verify-mfa-setup', { code, method });
+      const response = await api.post('/auth/mfa/setup', {
+        method,
+        email,
+        password,
+        userAgent: navigator.userAgent,
+        deviceFingerprint: this.generateDeviceFingerprint(),
+      });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'MFA setup failed');
+    }
+  },
+
+  /**
+   * Verify MFA setup for authenticated users
+   */
+  async verifyMFASetup(method: 'sms' | 'email' | 'authenticator', code: string): Promise<{ message: string }> {
+    try {
+      const response = await api.post<{ message: string }>('/auth/mfa/verify-setup', { method, code });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'MFA verification failed');
+    }
+  },
+
+  /**
+   * Verify MFA setup for users who need to authenticate with email/password
+   */
+  async verifyMFASetupWithCredentials(method: 'sms' | 'email' | 'authenticator', code: string, email: string, password: string): Promise<{ message: string }> {
+    try {
+      const response = await api.post<{ message: string }>('/auth/mfa/verify-setup', {
+        method,
+        code,
+        email,
+        password,
+        userAgent: navigator.userAgent,
+        deviceFingerprint: this.generateDeviceFingerprint(),
+      });
       return response.data;
     } catch (error: any) {
       throw new Error(error.response?.data?.message || 'MFA verification failed');

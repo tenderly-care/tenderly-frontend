@@ -1,31 +1,36 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { 
-  EyeIcon, 
-  EyeSlashIcon, 
-  CheckIcon, 
-  XMarkIcon,
-  AcademicCapIcon,
-  BuildingOfficeIcon,
-  ClockIcon,
-  ShieldCheckIcon,
-  UserIcon,
-  PhoneIcon,
-  EnvelopeIcon,
-  LockClosedIcon,
+  AcademicCapIcon, 
   DocumentTextIcon,
+  CheckCircleIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  EyeIcon,
+  EyeSlashIcon,
+  ShieldCheckIcon,
+  ExclamationCircleIcon,
+  UserIcon,
+  EnvelopeIcon,
+  PhoneIcon,
+  IdentificationIcon,
+  BriefcaseIcon,
   MapPinIcon
 } from '@heroicons/react/24/outline';
-import { 
-  validateRegistrationForm, 
-  validatePasswordStrength, 
-  sanitizeInput,
-  type FormValidationErrors
-} from '../../utils/validation';
+import { validateEmail, validatePassword, validatePhone, validateName, calculatePasswordStrength } from '../../utils/validation';
+import { authApi } from '../../services/api/authApi';
+import toast from 'react-hot-toast';
 
-interface DoctorFormData {
+/**
+ * In this code, the registerData object is sent to the backend database
+ * by calling the authApi.register(registerData) function. This function
+ * (see src/services/api/authApi.ts) makes a POST request to the backend
+ * API endpoint (typically /auth/register) with the registration details.
+ * The backend then stores the user in the database.
+ */
+
+interface PersonalInfo {
   firstName: string;
   lastName: string;
   email: string;
@@ -33,817 +38,764 @@ interface DoctorFormData {
   password: string;
   confirmPassword: string;
   medicalLicenseNumber: string;
-  specialization: string[];
-  experience: number;
-  workLocation: string;
-  department: string;
-  designation: string;
-  consultationFee: number;
-  biography: string;
-  languagesSpoken: string[];
+  specializations: string[];
+}
+
+interface TermsAcceptance {
   acceptTerms: boolean;
-  acceptMarketing: boolean;
+  acceptPrivacy: boolean;
   acceptProfessionalTerms: boolean;
 }
 
-interface PasswordStrength {
-  score: number;
-  feedback: string[];
-  strength: 'very-weak' | 'weak' | 'fair' | 'good' | 'strong';
-}
-
-const SPECIALIZATIONS = [
-  'General Medicine', 'Cardiology', 'Dermatology', 'Endocrinology',
-  'Gastroenterology', 'Neurology', 'Oncology', 'Orthopedics',
-  'Pediatrics', 'Psychiatry', 'Radiology', 'Surgery'
-];
-
-const LANGUAGES = [
-  'English', 'Hindi', 'Bengali', 'Telugu', 'Marathi', 'Tamil',
-  'Gujarati', 'Kannada', 'Malayalam', 'Punjabi', 'Urdu'
-];
-
 export const DoctorRegisterPage: React.FC = () => {
-  const [formData, setFormData] = useState<DoctorFormData>({
-    firstName: '', lastName: '', email: '', phone: '',
-    password: '', confirmPassword: '', medicalLicenseNumber: '',
-    specialization: [], experience: 0, workLocation: '',
-    department: '', designation: '', consultationFee: 0,
-    biography: '', languagesSpoken: [], acceptTerms: false,
-    acceptMarketing: false, acceptProfessionalTerms: false
-  });
-
-  const [errors, setErrors] = useState<FormValidationErrors>({});
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [currentStep, setCurrentStep] = useState(1);
-  const [passwordStrength, setPasswordStrength] = useState<PasswordStrength>({
-    score: 0, feedback: [], strength: 'very-weak'
-  });
-
-  const { register, error, clearError } = useAuth();
   const navigate = useNavigate();
 
+  // Step management
+  const [currentStep, setCurrentStep] = useState<'personal' | 'terms'>('personal');
+  const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [passwordStrength, setPasswordStrength] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+
+  // Form data
+  const [personalInfo, setPersonalInfo] = useState<PersonalInfo>({
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    password: '',
+    confirmPassword: '',
+    medicalLicenseNumber: '',
+    specializations: [],
+  });
+
+  const [terms, setTerms] = useState<TermsAcceptance>({
+    acceptTerms: false,
+    acceptPrivacy: false,
+    acceptProfessionalTerms: false,
+  });
+
+  // Validation states
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Medical specializations
+  const SPECIALIZATIONS = [
+    'Dermatology','Gynecology','Pediatrics','Obstetrics'
+  ];
+
+  // Password strength monitoring
   useEffect(() => {
-    if (formData.password) {
-      setPasswordStrength(validatePasswordStrength(formData.password));
+    if (personalInfo.password) {
+      const strength = calculatePasswordStrength(personalInfo.password);
+      setPasswordStrength(strength);
     } else {
-      setPasswordStrength({ score: 0, feedback: [], strength: 'very-weak' });
+      setPasswordStrength(0);
     }
-  }, [formData.password]);
+  }, [personalInfo.password]);
 
-  useEffect(() => {
-    if (Object.keys(errors).length > 0) {
-      setErrors({});
-      clearError();
+  // Clear error when user starts typing
+  const clearError = () => {
+    setError(null);
+  };
+
+  // Validation functions
+  const validatePersonalInfo = (): boolean => {
+    const newErrors: Record<string, string> = {};
+
+    // Basic validation
+    if (!validateName(personalInfo.firstName)) {
+      newErrors.firstName = 'First name is required and must be 2-50 characters';
     }
-  }, [formData, clearError]);
-
-  const validateStep = (step: number): boolean => {
-    const newErrors: FormValidationErrors = {};
-
-    if (step === 1) {
-      if (!formData.firstName.trim()) newErrors.firstName = 'First name is required';
-      if (!formData.lastName.trim()) newErrors.lastName = 'Last name is required';
-      if (!formData.email.trim()) newErrors.email = 'Email is required';
-      if (!formData.phone.trim()) newErrors.phone = 'Phone number is required';
-      if (!formData.password) newErrors.password = 'Password is required';
-      if (formData.password !== formData.confirmPassword) {
-        newErrors.confirmPassword = 'Passwords do not match';
-      }
+    if (!validateName(personalInfo.lastName)) {
+      newErrors.lastName = 'Last name is required and must be 2-50 characters';
     }
-
-    if (step === 2) {
-      if (!formData.medicalLicenseNumber.trim()) {
-        newErrors.medicalLicenseNumber = 'Medical license number is required';
-      }
-      if (formData.specialization.length === 0) {
-        newErrors.specialization = 'Please select at least one specialization';
-      }
-      if (formData.experience < 1) {
-        newErrors.experience = 'Experience must be at least 1 year';
-      }
-      if (!formData.workLocation.trim()) {
-        newErrors.workLocation = 'Work location is required';
-      }
+    if (!validateEmail(personalInfo.email)) {
+      newErrors.email = 'Please enter a valid email address';
+    }
+    if (!validatePhone(personalInfo.phone)) {
+      newErrors.phone = 'Please enter a valid phone number with country code (e.g., +919876543210)';
+    }
+    if (!validatePassword(personalInfo.password)) {
+      newErrors.password = 'Password must be at least 8 characters with uppercase, lowercase, number, and special character';
+    }
+    if (passwordStrength < 3) {
+      newErrors.password = 'Password is too weak. Please choose a stronger password.';
+    }
+    if (personalInfo.password !== personalInfo.confirmPassword) {
+      newErrors.confirmPassword = 'Passwords do not match';
     }
 
-    if (step === 3) {
-      if (!formData.acceptTerms) {
-        newErrors.acceptTerms = 'You must accept the terms and conditions';
-      }
-      if (!formData.acceptProfessionalTerms) {
-        newErrors.acceptProfessionalTerms = 'You must accept the professional terms';
-      }
+    // Healthcare provider specific validation
+    if (!personalInfo.medicalLicenseNumber.trim()) {
+      newErrors.medicalLicenseNumber = 'Medical license number is required';
+    } else if (personalInfo.medicalLicenseNumber.length < 4) {
+      newErrors.medicalLicenseNumber = 'Medical license number must be at least 4 characters';
+    }
+
+    if (personalInfo.specializations.length === 0) {
+      newErrors.specializations = 'Please select at least one specialization';
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value, type } = e.target;
-    
-    if (type === 'checkbox') {
-      const checked = (e.target as HTMLInputElement).checked;
-      setFormData(prev => ({ ...prev, [name]: checked }));
-    } else {
-      setFormData(prev => ({ ...prev, [name]: sanitizeInput(value) }));
+  const validateTerms = (): boolean => {
+    const newErrors: Record<string, string> = {};
+
+    if (!terms.acceptTerms) {
+      newErrors.acceptTerms = 'You must accept the terms and conditions';
     }
+    if (!terms.acceptPrivacy) {
+      newErrors.acceptPrivacy = 'You must accept the privacy policy';
+    }
+    if (!terms.acceptProfessionalTerms) {
+      newErrors.acceptProfessionalTerms = 'You must accept the professional terms';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
-  const handleSpecializationChange = (specialization: string) => {
-    setFormData(prev => ({
-      ...prev,
-      specialization: prev.specialization.includes(specialization)
-        ? prev.specialization.filter(s => s !== specialization)
-        : [...prev.specialization, specialization]
-    }));
-  };
-
-  const handleLanguageChange = (language: string) => {
-    setFormData(prev => ({
-      ...prev,
-      languagesSpoken: prev.languagesSpoken.includes(language)
-        ? prev.languagesSpoken.filter(l => l !== language)
-        : [...prev.languagesSpoken, language]
-    }));
-  };
-
+  // Step navigation
   const nextStep = () => {
-    if (validateStep(currentStep)) {
-      setCurrentStep(prev => Math.min(prev + 1, 3));
+    if (currentStep === 'personal') {
+      if (validatePersonalInfo()) {
+        setCurrentStep('terms');
+      }
     }
   };
 
   const prevStep = () => {
-    setCurrentStep(prev => Math.max(prev - 1, 1));
+    if (currentStep === 'terms') {
+      setCurrentStep('personal');
+    }
   };
 
+  // Handle registration
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!validateStep(currentStep)) return;
-    
+    if (!validateTerms()) {
+      return;
+    }
+
     setIsLoading(true);
-    
+    clearError();
+
     try {
-      await register({
-        ...formData,
-        role: 'healthcare_provider',
-        professionalInfo: {
-          medicalLicenseNumber: formData.medicalLicenseNumber,
-          specialization: formData.specialization,
-          experience: formData.experience,
-          workLocation: formData.workLocation,
-          department: formData.department,
-          designation: formData.designation,
-          consultationFee: formData.consultationFee,
-          biography: formData.biography,
-          languagesSpoken: formData.languagesSpoken,
-        }
-      });
+      // Prepare registration data according to backend API requirements
+      const registerData = {
+        firstName: personalInfo.firstName.trim(),
+        lastName: personalInfo.lastName.trim(),
+        email: personalInfo.email.trim().toLowerCase(),
+        phone: personalInfo.phone.trim(),
+        password: personalInfo.password,
+        role: 'healthcare_provider' as const,
+        medicalLicenseNumber: personalInfo.medicalLicenseNumber.trim(),
+        specializations: personalInfo.specializations,
+        userAgent: navigator.userAgent,
+        deviceFingerprint: generateDeviceFingerprint(),
+      };
+
+      // Here is where we send the registration data to the backend:
+      // The authApi.register function makes a POST request to the backend API endpoint (e.g., /auth/register)
+      // The backend receives this data and stores it in the database.
+      // See src/services/api/authApi.ts for implementation details.
+      const response = await authApi.register(registerData);
       
+      console.log('Registration successful! User ID:', response.user?.id);
+      console.log('User data:', response.user);
+      console.log('Access Token:', response.accessToken);
+      console.log('Refresh Token:', response.refreshToken);
+      console.log('Full registration response:', response);
+      
+      toast.success('Registration successful! Please check your email for verification.');
+      
+      // Registration successful - redirect to doctor login with success message
       navigate('/doctor/login', { 
         state: { 
-          message: 'Registration successful! Please verify your email and complete MFA setup to continue.',
-          email: formData.email 
+          message: 'Registration successful! Please verify your email, then log in to complete MFA setup.',
+          email: personalInfo.email.trim().toLowerCase(),
+          registrationComplete: true
         } 
       });
-    } catch (error) {
-      // Error is handled by the auth context
+    } catch (error: any) {
+      console.error('Registration error:', error);
+      console.log('Error message:', error.message);
+      console.log('Error response:', error.response?.data);
+      
+      let errorMessage = 'Registration failed';
+      
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      // Handle specific backend validation errors
+      if (error.response?.data?.errors) {
+        const backendErrors = error.response.data.errors;
+        const fieldErrors: Record<string, string> = {};
+        
+        Object.keys(backendErrors).forEach(field => {
+          if (backendErrors[field] && backendErrors[field].length > 0) {
+            fieldErrors[field] = backendErrors[field][0];
+          }
+        });
+        
+        if (Object.keys(fieldErrors).length > 0) {
+          setErrors(fieldErrors);
+          return;
+        }
+      }
+
+      setError(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const getPasswordStrengthColor = () => {
-    switch (passwordStrength.strength) {
-      case 'very-weak': return 'text-red-500';
-      case 'weak': return 'text-orange-500';
-      case 'fair': return 'text-yellow-500';
-      case 'good': return 'text-blue-500';
-      case 'strong': return 'text-green-500';
-      default: return 'text-gray-500';
+  // Generate device fingerprint for security
+  const generateDeviceFingerprint = (): string => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.textBaseline = 'top';
+      ctx.font = '14px Arial';
+      ctx.fillText('Device fingerprint', 2, 2);
     }
+    
+    return btoa([
+      navigator.userAgent,
+      navigator.language,
+      screen.width + 'x' + screen.height,
+      new Date().getTimezoneOffset(),
+      canvas.toDataURL()
+    ].join('|'));
   };
 
-  const getPasswordStrengthText = () => {
-    switch (passwordStrength.strength) {
-      case 'very-weak': return 'Very Weak';
-      case 'weak': return 'Weak';
-      case 'fair': return 'Fair';
-      case 'good': return 'Good';
-      case 'strong': return 'Strong';
-      default: return 'Very Weak';
-    }
+  // Get password strength color and text
+  const getPasswordStrengthInfo = () => {
+    if (passwordStrength === 0) return { color: 'bg-gray-200', text: 'No password', textColor: 'text-gray-500' };
+    if (passwordStrength === 1) return { color: 'bg-red-500', text: 'Very weak', textColor: 'text-red-600' };
+    if (passwordStrength === 2) return { color: 'bg-orange-500', text: 'Weak', textColor: 'text-orange-600' };
+    if (passwordStrength === 3) return { color: 'bg-yellow-500', text: 'Fair', textColor: 'text-yellow-600' };
+    if (passwordStrength === 4) return { color: 'bg-blue-500', text: 'Good', textColor: 'text-blue-600' };
+    return { color: 'bg-green-500', text: 'Strong', textColor: 'text-green-600' };
   };
+
+  // Render step content
+  const renderPersonalInfo = () => (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-lg font-medium text-gray-900 mb-4">Personal Information</h3>
+        <p className="text-sm text-gray-600 mb-6">Please provide your basic information and professional details.</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Basic Information */}
+        <div className="md:col-span-2">
+          <h4 className="text-md font-medium text-gray-700 mb-4 flex items-center">
+            <UserIcon className="h-5 w-5 mr-2" />
+            Basic Information
+          </h4>
+        </div>
+
+        <div>
+          <label htmlFor="firstName" className="block text-sm font-medium text-gray-700">
+            First Name *
+          </label>
+          <input
+            type="text"
+            id="firstName"
+            value={personalInfo.firstName}
+            onChange={(e) => {
+              setPersonalInfo({ ...personalInfo, firstName: e.target.value });
+              clearError();
+            }}
+            className={`mt-1 block w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${
+              errors.firstName ? 'border-red-300' : 'border-gray-300'
+            }`}
+            placeholder="Enter your first name"
+          />
+          {errors.firstName && <p className="mt-1 text-sm text-red-600">{errors.firstName}</p>}
+        </div>
+
+        <div>
+          <label htmlFor="lastName" className="block text-sm font-medium text-gray-700">
+            Last Name *
+          </label>
+          <input
+            type="text"
+            id="lastName"
+            value={personalInfo.lastName}
+            onChange={(e) => {
+              setPersonalInfo({ ...personalInfo, lastName: e.target.value });
+              clearError();
+            }}
+            className={`mt-1 block w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${
+              errors.lastName ? 'border-red-300' : 'border-gray-300'
+            }`}
+            placeholder="Enter your last name"
+          />
+          {errors.lastName && <p className="mt-1 text-sm text-red-600">{errors.lastName}</p>}
+        </div>
+
+        <div>
+          <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+            Email Address *
+          </label>
+          <div className="relative">
+            <input
+              type="email"
+              id="email"
+              value={personalInfo.email}
+              onChange={(e) => {
+                setPersonalInfo({ ...personalInfo, email: e.target.value });
+                clearError();
+              }}
+              className={`mt-1 block w-full px-3 py-2 pl-10 border rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${
+                errors.email ? 'border-red-300' : 'border-gray-300'
+              }`}
+              placeholder="john.doe@example.com"
+            />
+            <EnvelopeIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+          </div>
+          {errors.email && <p className="mt-1 text-sm text-red-600">{errors.email}</p>}
+        </div>
+
+        <div>
+          <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
+            Phone Number *
+          </label>
+          <div className="relative">
+            <input
+              type="tel"
+              id="phone"
+              value={personalInfo.phone}
+              onChange={(e) => {
+                setPersonalInfo({ ...personalInfo, phone: e.target.value });
+                clearError();
+              }}
+              className={`mt-1 block w-full px-3 py-2 pl-10 border rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${
+                errors.phone ? 'border-red-300' : 'border-gray-300'
+              }`}
+              placeholder="+919876543210"
+            />
+            <PhoneIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+          </div>
+          {errors.phone && <p className="mt-1 text-sm text-red-600">{errors.phone}</p>}
+        </div>
+
+        {/* Professional Information */}
+        <div className="md:col-span-2">
+          <h4 className="text-md font-medium text-gray-700 mb-4 flex items-center">
+            <BriefcaseIcon className="h-5 w-5 mr-2" />
+            Professional Information
+          </h4>
+        </div>
+
+        <div>
+          <label htmlFor="medicalLicense" className="block text-sm font-medium text-gray-700">
+            Medical License Number *
+          </label>
+          <div className="relative">
+            <input
+              type="text"
+              id="medicalLicense"
+              value={personalInfo.medicalLicenseNumber}
+              onChange={(e) => {
+                setPersonalInfo({ ...personalInfo, medicalLicenseNumber: e.target.value });
+                clearError();
+              }}
+              className={`mt-1 block w-full px-3 py-2 pl-10 border rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${
+                errors.medicalLicenseNumber ? 'border-red-300' : 'border-gray-300'
+              }`}
+              placeholder="Enter your medical license number"
+            />
+            <IdentificationIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+          </div>
+          {errors.medicalLicenseNumber && <p className="mt-1 text-sm text-red-600">{errors.medicalLicenseNumber}</p>}
+        </div>
+
+        <div className="md:col-span-2">
+          <label htmlFor="specializations" className="block text-sm font-medium text-gray-700">
+            Medical Specializations *
+          </label>
+          <div className="mt-2 grid grid-cols-2 md:grid-cols-3 gap-2 max-h-32 overflow-y-auto border border-gray-300 rounded-md p-2">
+            {SPECIALIZATIONS.map((spec) => (
+              <label key={spec} className="flex items-center text-sm">
+                <input
+                  type="checkbox"
+                  value={spec}
+                  checked={personalInfo.specializations.includes(spec)}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setPersonalInfo({ 
+                        ...personalInfo, 
+                        specializations: [...personalInfo.specializations, spec] 
+                      });
+                    } else {
+                      setPersonalInfo({ 
+                        ...personalInfo, 
+                        specializations: personalInfo.specializations.filter(s => s !== spec) 
+                      });
+                    }
+                    clearError();
+                  }}
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded mr-2"
+                />
+                <span className="text-gray-700">{spec}</span>
+              </label>
+            ))}
+          </div>
+          {errors.specializations && <p className="mt-1 text-sm text-red-600">{errors.specializations}</p>}
+          <p className="mt-1 text-xs text-gray-500">Select your areas of medical expertise</p>
+        </div>
+      </div>
+
+      {/* Password Section */}
+      <div className="space-y-4">
+        <h4 className="text-md font-medium text-gray-700 mb-4 flex items-center">
+          <ShieldCheckIcon className="h-5 w-5 mr-2" />
+          Security
+        </h4>
+
+        <div>
+          <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+            Password *
+          </label>
+          <div className="relative">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              id="password"
+              value={personalInfo.password}
+              onChange={(e) => {
+                setPersonalInfo({ ...personalInfo, password: e.target.value });
+                clearError();
+              }}
+              className={`mt-1 block w-full px-3 py-2 pr-10 border rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${
+                errors.password ? 'border-red-300' : 'border-gray-300'
+              }`}
+              placeholder="Enter a strong password"
+            />
+            <button
+              type="button"
+              className="absolute inset-y-0 right-0 pr-3 flex items-center"
+              onClick={() => setShowPassword(!showPassword)}
+            >
+              {showPassword ? (
+                <EyeSlashIcon className="h-5 w-5 text-gray-400" />
+              ) : (
+                <EyeIcon className="h-5 w-5 text-gray-400" />
+              )}
+            </button>
+          </div>
+          
+          {/* Password Strength Indicator */}
+          {personalInfo.password && (
+            <div className="mt-2">
+              <div className="flex items-center space-x-2">
+                <div className="flex-1 bg-gray-200 rounded-full h-2">
+                  <div 
+                    className={`h-2 rounded-full transition-all duration-300 ${getPasswordStrengthInfo().color}`}
+                    style={{ width: `${(passwordStrength / 5) * 100}%` }}
+                  />
+                </div>
+                <span className={`text-xs font-medium ${getPasswordStrengthInfo().textColor}`}>
+                  {getPasswordStrengthInfo().text}
+                </span>
+              </div>
+              <div className="mt-1 text-xs text-gray-600">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className={personalInfo.password.length >= 8 ? 'text-green-600' : 'text-gray-400'}>
+                    ✓ At least 8 characters
+                  </div>
+                  <div className={/[A-Z]/.test(personalInfo.password) ? 'text-green-600' : 'text-gray-400'}>
+                    ✓ Uppercase letter
+                  </div>
+                  <div className={/[a-z]/.test(personalInfo.password) ? 'text-green-600' : 'text-gray-400'}>
+                    ✓ Lowercase letter
+                  </div>
+                  <div className={/\d/.test(personalInfo.password) ? 'text-green-600' : 'text-gray-400'}>
+                    ✓ Number
+                  </div>
+                  <div className={/[@$!%*?&]/.test(personalInfo.password) ? 'text-green-600' : 'text-gray-400'}>
+                    ✓ Special character
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {errors.password && <p className="mt-1 text-sm text-red-600">{errors.password}</p>}
+        </div>
+
+        <div>
+          <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">
+            Confirm Password *
+          </label>
+          <div className="relative">
+            <input
+              type={showConfirmPassword ? 'text' : 'password'}
+              id="confirmPassword"
+              value={personalInfo.confirmPassword}
+              onChange={(e) => {
+                setPersonalInfo({ ...personalInfo, confirmPassword: e.target.value });
+                clearError();
+              }}
+              className={`mt-1 block w-full px-3 py-2 pr-10 border rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${
+                errors.confirmPassword ? 'border-red-300' : 'border-gray-300'
+              }`}
+              placeholder="Confirm your password"
+            />
+            <button
+              type="button"
+              className="absolute inset-y-0 right-0 pr-3 flex items-center"
+              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+            >
+              {showConfirmPassword ? (
+                <EyeSlashIcon className="h-5 w-5 text-gray-400" />
+              ) : (
+                <EyeIcon className="h-5 w-5 text-gray-400" />
+              )}
+            </button>
+          </div>
+          
+          {/* Password Match Indicator */}
+          {personalInfo.confirmPassword && (
+            <div className="mt-1 text-xs">
+              {personalInfo.password === personalInfo.confirmPassword ? (
+                <span className="text-green-600">✓ Passwords match</span>
+              ) : (
+                <span className="text-red-600">✗ Passwords do not match</span>
+              )}
+            </div>
+          )}
+          
+          {errors.confirmPassword && <p className="mt-1 text-sm text-red-600">{errors.confirmPassword}</p>}
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderTerms = () => (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-lg font-medium text-gray-900 mb-4">Terms & Verification</h3>
+        <p className="text-sm text-gray-600 mb-6">Please review and accept the terms to complete your registration.</p>
+      </div>
+
+      <div className="space-y-4">
+        <div className="flex items-start">
+          <input
+            type="checkbox"
+            id="acceptTerms"
+            checked={terms.acceptTerms}
+            onChange={(e) => setTerms({ ...terms, acceptTerms: e.target.checked })}
+            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded mt-1"
+          />
+          <label htmlFor="acceptTerms" className="ml-3 text-sm text-gray-700">
+            I accept the <Link to="/terms" className="text-blue-600 hover:text-blue-500">Terms and Conditions</Link> *
+          </label>
+        </div>
+        {errors.acceptTerms && <p className="text-sm text-red-600">{errors.acceptTerms}</p>}
+
+        <div className="flex items-start">
+          <input
+            type="checkbox"
+            id="acceptPrivacy"
+            checked={terms.acceptPrivacy}
+            onChange={(e) => setTerms({ ...terms, acceptPrivacy: e.target.checked })}
+            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded mt-1"
+          />
+          <label htmlFor="acceptPrivacy" className="ml-3 text-sm text-gray-700">
+            I accept the <Link to="/privacy" className="text-blue-600 hover:text-blue-500">Privacy Policy</Link> *
+          </label>
+        </div>
+        {errors.acceptPrivacy && <p className="text-sm text-red-600">{errors.acceptPrivacy}</p>}
+
+        <div className="flex items-start">
+          <input
+            type="checkbox"
+            id="acceptProfessionalTerms"
+            checked={terms.acceptProfessionalTerms}
+            onChange={(e) => setTerms({ ...terms, acceptProfessionalTerms: e.target.checked })}
+            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded mt-1"
+          />
+          <label htmlFor="acceptProfessionalTerms" className="ml-3 text-sm text-gray-700">
+            I accept the <Link to="/professional-terms" className="text-blue-600 hover:text-blue-500">Professional Terms</Link> for healthcare providers *
+          </label>
+        </div>
+        {errors.acceptProfessionalTerms && <p className="text-sm text-red-600">{errors.acceptProfessionalTerms}</p>}
+      </div>
+
+      <div className="space-y-4">
+        <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+          <div className="flex items-start">
+            <ShieldCheckIcon className="h-5 w-5 text-blue-600 mt-0.5 mr-2 flex-shrink-0" />
+            <div>
+              <h4 className="text-sm font-medium text-blue-900 mb-2">Security Requirements for Healthcare Providers:</h4>
+              <ul className="text-sm text-blue-800 space-y-1">
+                <li>• Two-Factor Authentication (MFA) is mandatory for all healthcare providers</li>
+                <li>• Your account will be created with PENDING_VERIFICATION status</li>
+                <li>• You'll receive an email verification link within a few minutes</li>
+                <li>• After email verification, you must complete MFA setup during first login</li>
+                <li>• Professional information can be updated in your dashboard</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-amber-50 border border-amber-200 rounded-md p-4">
+          <div className="flex items-start">
+            <ExclamationCircleIcon className="h-5 w-5 text-amber-600 mt-0.5 mr-2 flex-shrink-0" />
+            <div>
+              <h4 className="text-sm font-medium text-amber-900 mb-2">Professional Verification:</h4>
+              <ul className="text-sm text-amber-800 space-y-1">
+                <li>• Your medical license will be verified by our team</li>
+                <li>• Account activation may take 24-48 hours for verification</li>
+                <li>• Please ensure all professional information is accurate</li>
+                <li>• You may be asked to provide additional documentation</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Step indicators
+  const steps = [
+    { id: 'personal', name: 'Personal Information', icon: AcademicCapIcon },
+    { id: 'terms', name: 'Terms & Verification', icon: DocumentTextIcon },
+  ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="mx-auto h-16 w-16 flex items-center justify-center rounded-full bg-blue-100 mb-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-indigo-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-2xl w-full space-y-8">
+        <div>
+          <div className="mx-auto h-16 w-16 flex items-center justify-center rounded-full bg-blue-100">
             <AcademicCapIcon className="h-8 w-8 text-blue-600" />
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Join Tenderly as a Healthcare Provider
-          </h1>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            Connect with patients, provide expert care, and grow your practice with our comprehensive telemedicine platform.
+          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+            Healthcare Provider Registration
+          </h2>
+          <p className="mt-2 text-center text-sm text-gray-600">
+            Join our healthcare platform and start providing care to patients
           </p>
         </div>
 
-        {/* Progress Bar */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <div className={`flex items-center ${currentStep >= 1 ? 'text-blue-600' : 'text-gray-400'}`}>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${
-                currentStep >= 1 ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300'
-              }`}>
-                1
-              </div>
-              <span className="ml-2 font-medium">Personal Information</span>
-            </div>
-            <div className={`flex items-center ${currentStep >= 2 ? 'text-blue-600' : 'text-gray-400'}`}>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${
-                currentStep >= 2 ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300'
-              }`}>
-                2
-              </div>
-              <span className="ml-2 font-medium">Professional Details</span>
-            </div>
-            <div className={`flex items-center ${currentStep >= 3 ? 'text-blue-600' : 'text-gray-400'}`}>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${
-                currentStep >= 3 ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300'
-              }`}>
-                3
-              </div>
-              <span className="ml-2 font-medium">Terms & Verification</span>
-            </div>
-          </div>
-          <div className="w-full bg-gray-200 rounded-full h-2">
-            <div 
-              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-              style={{ width: `${(currentStep / 3) * 100}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Form */}
-        <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Step 1: Personal Information */}
-            {currentStep === 1 && (
-              <div className="space-y-6">
-                <div className="border-b border-gray-200 pb-4">
-                  <h2 className="text-xl font-semibold text-gray-900 mb-2">Personal Information</h2>
-                  <p className="text-gray-600">Please provide your basic personal details</p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-2">
-                      First Name *
-                    </label>
-                    <div className="relative">
-                      <UserIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                      <input
-                        type="text"
-                        id="firstName"
-                        name="firstName"
-                        value={formData.firstName}
-                        onChange={handleInputChange}
-                        className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                          errors.firstName ? 'border-red-300' : 'border-gray-300'
-                        }`}
-                        placeholder="Enter your first name"
-                      />
-                    </div>
-                    {errors.firstName && (
-                      <p className="mt-1 text-sm text-red-600">{errors.firstName}</p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 mb-2">
-                      Last Name *
-                    </label>
-                    <div className="relative">
-                      <UserIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                      <input
-                        type="text"
-                        id="lastName"
-                        name="lastName"
-                        value={formData.lastName}
-                        onChange={handleInputChange}
-                        className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                          errors.lastName ? 'border-red-300' : 'border-gray-300'
-                        }`}
-                        placeholder="Enter your last name"
-                      />
-                    </div>
-                    {errors.lastName && (
-                      <p className="mt-1 text-sm text-red-600">{errors.lastName}</p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                      Email Address *
-                    </label>
-                    <div className="relative">
-                      <EnvelopeIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                      <input
-                        type="email"
-                        id="email"
-                        name="email"
-                        value={formData.email}
-                        onChange={handleInputChange}
-                        className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                          errors.email ? 'border-red-300' : 'border-gray-300'
-                        }`}
-                        placeholder="Enter your email address"
-                      />
-                    </div>
-                    {errors.email && (
-                      <p className="mt-1 text-sm text-red-600">{errors.email}</p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-2">
-                      Phone Number *
-                    </label>
-                    <div className="relative">
-                      <PhoneIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                      <input
-                        type="tel"
-                        id="phone"
-                        name="phone"
-                        value={formData.phone}
-                        onChange={handleInputChange}
-                        className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                          errors.phone ? 'border-red-300' : 'border-gray-300'
-                        }`}
-                        placeholder="Enter your phone number"
-                      />
-                    </div>
-                    {errors.phone && (
-                      <p className="mt-1 text-sm text-red-600">{errors.phone}</p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                      Password *
-                    </label>
-                    <div className="relative">
-                      <LockClosedIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                      <input
-                        type={showPassword ? 'text' : 'password'}
-                        id="password"
-                        name="password"
-                        value={formData.password}
-                        onChange={handleInputChange}
-                        className={`w-full pl-10 pr-12 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                          errors.password ? 'border-red-300' : 'border-gray-300'
-                        }`}
-                        placeholder="Create a strong password"
-                      />
-                      <button
-                        type="button"
-                        className="absolute right-3 top-1/2 transform -translate-y-1/2"
-                        onClick={() => setShowPassword(!showPassword)}
-                      >
-                        {showPassword ? (
-                          <EyeSlashIcon className="h-5 w-5 text-gray-400" />
-                        ) : (
-                          <EyeIcon className="h-5 w-5 text-gray-400" />
-                        )}
-                      </button>
-                    </div>
-                    {formData.password && (
-                      <div className="mt-2">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className={`font-medium ${getPasswordStrengthColor()}`}>
-                            Password Strength: {getPasswordStrengthText()}
-                          </span>
-                          <div className="flex space-x-1">
-                            {[1, 2, 3, 4, 5].map((level) => (
-                              <div
-                                key={level}
-                                className={`h-1 w-8 rounded-full ${
-                                  passwordStrength.score >= level
-                                    ? getPasswordStrengthColor().replace('text-', 'bg-')
-                                    : 'bg-gray-200'
-                                }`}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    {errors.password && (
-                      <p className="mt-1 text-sm text-red-600">{errors.password}</p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
-                      Confirm Password *
-                    </label>
-                    <div className="relative">
-                      <LockClosedIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                      <input
-                        type={showConfirmPassword ? 'text' : 'password'}
-                        id="confirmPassword"
-                        name="confirmPassword"
-                        value={formData.confirmPassword}
-                        onChange={handleInputChange}
-                        className={`w-full pl-10 pr-12 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                          errors.confirmPassword ? 'border-red-300' : 'border-gray-300'
-                        }`}
-                        placeholder="Confirm your password"
-                      />
-                      <button
-                        type="button"
-                        className="absolute right-3 top-1/2 transform -translate-y-1/2"
-                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                      >
-                        {showConfirmPassword ? (
-                          <EyeSlashIcon className="h-5 w-5 text-gray-400" />
-                        ) : (
-                          <EyeIcon className="h-5 w-5 text-gray-400" />
-                        )}
-                      </button>
-                    </div>
-                    {errors.confirmPassword && (
-                      <p className="mt-1 text-sm text-red-600">{errors.confirmPassword}</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Step 2: Professional Information */}
-            {currentStep === 2 && (
-              <div className="space-y-6">
-                <div className="border-b border-gray-200 pb-4">
-                  <h2 className="text-xl font-semibold text-gray-900 mb-2">Professional Information</h2>
-                  <p className="text-gray-600">Tell us about your medical practice and expertise</p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label htmlFor="medicalLicenseNumber" className="block text-sm font-medium text-gray-700 mb-2">
-                      Medical License Number *
-                    </label>
-                    <div className="relative">
-                      <DocumentTextIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                      <input
-                        type="text"
-                        id="medicalLicenseNumber"
-                        name="medicalLicenseNumber"
-                        value={formData.medicalLicenseNumber}
-                        onChange={handleInputChange}
-                        className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                          errors.medicalLicenseNumber ? 'border-red-300' : 'border-gray-300'
-                        }`}
-                        placeholder="Enter your medical license number"
-                      />
-                    </div>
-                    {errors.medicalLicenseNumber && (
-                      <p className="mt-1 text-sm text-red-600">{errors.medicalLicenseNumber}</p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label htmlFor="experience" className="block text-sm font-medium text-gray-700 mb-2">
-                      Years of Experience *
-                    </label>
-                    <input
-                      type="number"
-                      id="experience"
-                      name="experience"
-                      min="1"
-                      max="50"
-                      value={formData.experience}
-                      onChange={handleInputChange}
-                      className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                        errors.experience ? 'border-red-300' : 'border-gray-300'
-                      }`}
-                      placeholder="Enter years of experience"
-                    />
-                    {errors.experience && (
-                      <p className="mt-1 text-sm text-red-600">{errors.experience}</p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label htmlFor="workLocation" className="block text-sm font-medium text-gray-700 mb-2">
-                      Work Location *
-                    </label>
-                    <div className="relative">
-                      <MapPinIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                      <input
-                        type="text"
-                        id="workLocation"
-                        name="workLocation"
-                        value={formData.workLocation}
-                        onChange={handleInputChange}
-                        className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                          errors.workLocation ? 'border-red-300' : 'border-gray-300'
-                        }`}
-                        placeholder="e.g., Apollo Hospital, Delhi"
-                      />
-                    </div>
-                    {errors.workLocation && (
-                      <p className="mt-1 text-sm text-red-600">{errors.workLocation}</p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label htmlFor="department" className="block text-sm font-medium text-gray-700 mb-2">
-                      Department *
-                    </label>
-                    <input
-                      type="text"
-                      id="department"
-                      name="department"
-                      value={formData.department}
-                      onChange={handleInputChange}
-                      className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                        errors.department ? 'border-red-300' : 'border-gray-300'
-                      }`}
-                      placeholder="e.g., Cardiology Department"
-                    />
-                    {errors.department && (
-                      <p className="mt-1 text-sm text-red-600">{errors.department}</p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label htmlFor="designation" className="block text-sm font-medium text-gray-700 mb-2">
-                      Designation *
-                    </label>
-                    <input
-                      type="text"
-                      id="designation"
-                      name="designation"
-                      value={formData.designation}
-                      onChange={handleInputChange}
-                      className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                        errors.designation ? 'border-red-300' : 'border-gray-300'
-                      }`}
-                      placeholder="e.g., Senior Consultant"
-                    />
-                    {errors.designation && (
-                      <p className="mt-1 text-sm text-red-600">{errors.designation}</p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label htmlFor="consultationFee" className="block text-sm font-medium text-gray-700 mb-2">
-                      Consultation Fee (₹) *
-                    </label>
-                    <input
-                      type="number"
-                      id="consultationFee"
-                      name="consultationFee"
-                      min="100"
-                      step="50"
-                      value={formData.consultationFee}
-                      onChange={handleInputChange}
-                      className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                        errors.consultationFee ? 'border-red-300' : 'border-gray-300'
-                      }`}
-                      placeholder="Enter consultation fee"
-                    />
-                    {errors.consultationFee && (
-                      <p className="mt-1 text-sm text-red-600">{errors.consultationFee}</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Specializations */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-3">
-                    Specializations *
-                  </label>
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                    {SPECIALIZATIONS.map((spec) => (
-                      <label key={spec} className="flex items-center space-x-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={formData.specialization.includes(spec)}
-                          onChange={() => handleSpecializationChange(spec)}
-                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                        />
-                        <span className="text-sm text-gray-700">{spec}</span>
-                      </label>
-                    ))}
-                  </div>
-                  {errors.specialization && (
-                    <p className="mt-1 text-sm text-red-600">{errors.specialization}</p>
-                  )}
-                </div>
-
-                {/* Languages */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-3">
-                    Languages Spoken
-                  </label>
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                    {LANGUAGES.map((language) => (
-                      <label key={language} className="flex items-center space-x-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={formData.languagesSpoken.includes(language)}
-                          onChange={() => handleLanguageChange(language)}
-                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                        />
-                        <span className="text-sm text-gray-700">{language}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Biography */}
-                <div>
-                  <label htmlFor="biography" className="block text-sm font-medium text-gray-700 mb-2">
-                    Professional Biography
-                  </label>
-                  <textarea
-                    id="biography"
-                    name="biography"
-                    rows={4}
-                    value={formData.biography}
-                    onChange={handleInputChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Tell us about your expertise, experience, and approach to patient care..."
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Step 3: Terms and Verification */}
-            {currentStep === 3 && (
-              <div className="space-y-6">
-                <div className="border-b border-gray-200 pb-4">
-                  <h2 className="text-xl font-semibold text-gray-900 mb-2">Terms & Verification</h2>
-                  <p className="text-gray-600">Please review and accept our terms and conditions</p>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="flex items-start space-x-3">
-                    <input
-                      type="checkbox"
-                      id="acceptTerms"
-                      name="acceptTerms"
-                      checked={formData.acceptTerms}
-                      onChange={handleInputChange}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded mt-1"
-                    />
-                    <div>
-                      <label htmlFor="acceptTerms" className="text-sm font-medium text-gray-700">
-                        I accept the Terms and Conditions *
-                      </label>
-                      <p className="text-xs text-gray-500 mt-1">
-                        By checking this box, you agree to our terms of service and privacy policy.
-                      </p>
-                    </div>
-                  </div>
-                  {errors.acceptTerms && (
-                    <p className="text-sm text-red-600">{errors.acceptTerms}</p>
-                  )}
-
-                  <div className="flex items-start space-x-3">
-                    <input
-                      type="checkbox"
-                      id="acceptProfessionalTerms"
-                      name="acceptProfessionalTerms"
-                      checked={formData.acceptProfessionalTerms}
-                      onChange={handleInputChange}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded mt-1"
-                    />
-                    <div>
-                      <label htmlFor="acceptProfessionalTerms" className="text-sm font-medium text-gray-700">
-                        I accept the Professional Terms *
-                      </label>
-                      <p className="text-xs text-gray-500 mt-1">
-                        I confirm that I am a licensed healthcare provider and will maintain professional standards.
-                      </p>
-                    </div>
-                  </div>
-                  {errors.acceptProfessionalTerms && (
-                    <p className="text-sm text-red-600">{errors.acceptProfessionalTerms}</p>
-                  )}
-
-                  <div className="flex items-start space-x-3">
-                    <input
-                      type="checkbox"
-                      id="acceptMarketing"
-                      name="acceptMarketing"
-                      checked={formData.acceptMarketing}
-                      onChange={handleInputChange}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded mt-1"
-                    />
-                    <div>
-                      <label htmlFor="acceptMarketing" className="text-sm font-medium text-gray-700">
-                        I agree to receive marketing communications
-                      </label>
-                      <p className="text-xs text-gray-500 mt-1">
-                        Receive updates about new features, opportunities, and platform improvements.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Security Notice */}
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <div className="flex items-start space-x-3">
-                    <ShieldCheckIcon className="h-5 w-5 text-blue-600 mt-0.5" />
-                    <div>
-                      <h3 className="text-sm font-medium text-blue-900">Security & Verification</h3>
-                      <p className="text-sm text-blue-700 mt-1">
-                        Your medical license will be verified by our team. You'll need to complete MFA setup after email verification to access the platform.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Error Display */}
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md">
-                {error}
-              </div>
-            )}
-
-            {/* Navigation Buttons */}
-            <div className="flex justify-between pt-6">
-              {currentStep > 1 && (
-                <button
-                  type="button"
-                  onClick={prevStep}
-                  className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  Previous
-                </button>
-              )}
+        {/* Step Indicators */}
+        <div className="flex items-center justify-center">
+          <div className="flex items-center space-x-4">
+            {steps.map((step, index) => {
+              const isActive = currentStep === step.id;
+              const isCompleted = steps.findIndex(s => s.id === currentStep) > index;
               
-              <div className="flex space-x-3">
-                {currentStep < 3 ? (
-                  <button
-                    type="button"
-                    onClick={nextStep}
-                    className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    Next
-                  </button>
-                ) : (
-                  <button
-                    type="submit"
-                    disabled={isLoading}
-                    className="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-                  >
-                    {isLoading ? (
-                      <>
-                        <LoadingSpinner size="sm" color="white" />
-                        <span className="ml-2">Creating Account...</span>
-                      </>
+              return (
+                <div key={step.id} className="flex items-center">
+                  <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
+                    isActive 
+                      ? 'border-blue-600 bg-blue-600 text-white' 
+                      : isCompleted 
+                        ? 'border-green-500 bg-green-500 text-white'
+                        : 'border-gray-300 bg-white text-gray-400'
+                  }`}>
+                    {isCompleted ? (
+                      <CheckCircleIcon className="h-6 w-6" />
                     ) : (
-                      'Create Account'
+                      <step.icon className="h-5 w-5" />
                     )}
-                  </button>
-                )}
-              </div>
-            </div>
-          </form>
+                  </div>
+                  <div className="ml-3">
+                    <p className={`text-sm font-medium ${
+                      isActive ? 'text-blue-600' : isCompleted ? 'text-green-600' : 'text-gray-500'
+                    }`}>
+                      {step.name}
+                    </p>
+                  </div>
+                  {index < steps.length - 1 && (
+                    <div className={`w-8 h-0.5 ml-4 ${
+                      isCompleted ? 'bg-green-500' : 'bg-gray-300'
+                    }`} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
 
-        {/* Footer */}
-        <div className="text-center mt-8">
-          <p className="text-gray-600">
+        {/* Error Display */}
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md">
+            {error}
+          </div>
+        )}
+
+        {/* Step Content */}
+        <div className="bg-white shadow-xl rounded-lg p-8">
+          {currentStep === 'personal' && renderPersonalInfo()}
+          {currentStep === 'terms' && renderTerms()}
+        </div>
+
+        {/* Navigation Buttons */}
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={prevStep}
+            disabled={currentStep === 'personal'}
+            className={`flex items-center px-4 py-2 text-sm font-medium rounded-md ${
+              currentStep === 'personal'
+                ? 'text-gray-400 cursor-not-allowed'
+                : 'text-blue-600 hover:text-blue-500'
+            }`}
+          >
+            <ArrowLeftIcon className="h-4 w-4 mr-2" />
+            Previous
+          </button>
+
+          {currentStep === 'terms' ? (
+            <button
+              type="submit"
+              onClick={handleSubmit}
+              disabled={isLoading}
+              className="flex items-center px-6 py-3 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isLoading ? (
+                <LoadingSpinner size="sm" color="white" />
+              ) : (
+                <>
+                  Complete Registration
+                  <ArrowRightIcon className="h-4 w-4 ml-2" />
+                </>
+              )}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={nextStep}
+              className="flex items-center px-6 py-3 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              Next
+              <ArrowRightIcon className="h-4 w-4 ml-2" />
+            </button>
+          )}
+        </div>
+
+        <div className="text-center">
+          <p className="text-sm text-gray-600">
             Already have an account?{' '}
             <Link
               to="/doctor/login"
               className="font-medium text-blue-600 hover:text-blue-500"
             >
-              Sign in as a healthcare provider
-            </Link>
-          </p>
-          <p className="text-sm text-gray-500 mt-2">
-            Are you a patient?{' '}
-            <Link
-              to="/register"
-              className="text-blue-600 hover:text-blue-500"
-            >
-              Register as a patient
+              Sign in as healthcare provider
             </Link>
           </p>
         </div>
