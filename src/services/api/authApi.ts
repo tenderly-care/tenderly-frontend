@@ -13,8 +13,15 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
-    if (token && token !== 'temp_mfa_setup') {
+    if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+      console.log('🔑 Attaching token to request:', {
+        url: config.url,
+        tokenPreview: token.substring(0, 20) + '...',
+        tokenType: token === 'temp_mfa_setup' ? 'temp_mfa_setup' : 'backend_token'
+      });
+    } else {
+      console.log('⚠️ No token available for request:', config.url);
     }
     return config;
   },

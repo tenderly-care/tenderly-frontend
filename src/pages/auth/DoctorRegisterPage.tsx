@@ -22,14 +22,6 @@ import { validateEmail, validatePassword, validatePhone, validateName, calculate
 import { authApi } from '../../services/api/authApi';
 import toast from 'react-hot-toast';
 
-/**
- * In this code, the registerData object is sent to the backend database
- * by calling the authApi.register(registerData) function. This function
- * (see src/services/api/authApi.ts) makes a POST request to the backend
- * API endpoint (typically /auth/register) with the registration details.
- * The backend then stores the user in the database.
- */
-
 interface PersonalInfo {
   firstName: string;
   lastName: string;
@@ -199,16 +191,15 @@ export const DoctorRegisterPage: React.FC = () => {
         deviceFingerprint: generateDeviceFingerprint(),
       };
 
-      // Here is where we send the registration data to the backend:
-      // The authApi.register function makes a POST request to the backend API endpoint (e.g., /auth/register)
-      // The backend receives this data and stores it in the database.
-      // See src/services/api/authApi.ts for implementation details.
+      console.log('Submitting registration data:', registerData);
+
+      // Call backend registration API
       const response = await authApi.register(registerData);
       
       console.log('Registration successful! User ID:', response.user?.id);
       console.log('User data:', response.user);
-      console.log('Access Token:', response.accessToken);
-      console.log('Refresh Token:', response.refreshToken);
+      // console.log('Access Token:', response.accessToken);
+      // console.log('Refresh Token:', response.refreshToken);
       console.log('Full registration response:', response);
       
       toast.success('Registration successful! Please check your email for verification.');
@@ -223,8 +214,6 @@ export const DoctorRegisterPage: React.FC = () => {
       });
     } catch (error: any) {
       console.error('Registration error:', error);
-      console.log('Error message:', error.message);
-      console.log('Error response:', error.response?.data);
       
       let errorMessage = 'Registration failed';
       

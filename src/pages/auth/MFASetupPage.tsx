@@ -37,64 +37,122 @@ export const MFASetupPage: React.FC = () => {
   const [verificationCode, setVerificationCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [backupCodesCopied, setBackupCodesCopied] = useState(false);
+  const [setupInitialized, setSetupInitialized] = useState(false);
 
   // Get email from URL params (for users who need to set up MFA after registration)
   const emailFromParams = searchParams.get('email');
 
-  // Initialize MFA setup on component mount
+  // Initialize MFA setup on component mount (prevent double initialization in React Strict Mode)
   useEffect(() => {
     // Check if user needs MFA setup
     const needsMFASetup = user?.requiresMFA && !user?.isMFAEnabled;
     const hasEmailParam = emailFromParams;
     const isPendingMFASetup = pendingMFASetup;
     
-    if (needsMFASetup || hasEmailParam || isPendingMFASetup) {
+    if ((needsMFASetup || hasEmailParam || isPendingMFASetup) && !setupInitialized && !mfaSetupData) {
+      setSetupInitialized(true);
       initializeMFASetup();
-    } else {
+    } else if (!needsMFASetup && !hasEmailParam && !isPendingMFASetup && !setupInitialized) {
       // If MFA is not required or already enabled, redirect to dashboard
       navigate('/doctor/dashboard');
     }
-  }, [user, emailFromParams, pendingMFASetup]);
+  }, [user, emailFromParams, pendingMFASetup, setupInitialized, mfaSetupData]);
 
   const initializeMFASetup = async () => {
     setIsLoading(true);
     setError(null);
 
     try {
-      console.log('Initializing MFA setup...');
+      console.log('=== INITIALIZING MFA SETUP ===');
       console.log('- Pending MFA Setup:', pendingMFASetup);
       console.log('- User:', user);
       console.log('- Email from params:', emailFromParams);
       
       const tempCredentials = getTempCredentials();
       console.log('- Temp Credentials Available:', !!tempCredentials);
+      if (tempCredentials) {
+        console.log('- Temp Credentials Email:', tempCredentials.email);
+        console.log('- Temp Credentials Password Length:', tempCredentials.password?.length);
+      }
       
       const currentToken = localStorage.getItem('token');
-      console.log('- Current token:', currentToken);
+      const refreshToken = localStorage.getItem('refreshToken');
+      console.log('- Current token:', currentToken ? `${currentToken.substring(0, 20)}...` : 'null');
+      console.log('- Refresh token available:', !!refreshToken);
       console.log('- Token type:', currentToken === 'temp_mfa_setup' ? 'temp_mfa_setup' : 'valid_token');
       
       let response;
-      // Check if we have a valid authentication token (including temporary tokens from backend)
-      if (currentToken && currentToken !== 'temp_mfa_setup') {
-        // We have a valid token (regular token or temporary token from new backend)
-        console.log('✅ Using token-based MFA setup (token available from backend)');
-        console.log('- Token is valid for MFA setup requests');
-        response = await authApi.setupMFA('authenticator');
-      } else if (pendingMFASetup && tempCredentials) {
-        // Fallback: credentials-based approach (legacy support)
-        console.log('⚠️ Using credentials-based MFA setup (fallback - no temporary token)');
-        console.log('⚠️ This may fail if backend requires temporary token authentication');
-        response = await authApi.setupMFAWithCredentials(
-          'authenticator',
-          tempCredentials.email!,
-          tempCredentials.password!
-        );
-      } else {
-        console.error('❌ No authentication method available for MFA setup');
-        console.error('- No valid token in localStorage');
-        console.error('- No temporary credentials available');
-        console.error('- Backend should provide temporaryToken in 403 response');
-        throw new Error('No authentication method available for MFA setup. Please try logging in again.');
+      let attemptedMethod = '';
+      
+      // Strategy 1: Try token-based approach if we have a valid token (including temporary token from backend)
+      if (currentToken) {
+        try {
+          attemptedMethod = 'token-based';
+          console.log('🎯 ATTEMPT 1: Using token-based MFA setup');
+          console.log('- Token preview:', currentToken.substring(0, 20) + '...');
+          console.log('- Token length:', currentToken.length);
+          console.log('- Token type detected:', currentToken === 'temp_mfa_setup' ? 'temp_mfa_setup' : 'backend_temporary_token');
+          
+          response = await authApi.setupMFA('authenticator');
+          console.log('✅ Token-based MFA setup successful');
+        } catch (tokenError: any) {
+          console.warn('⚠️ Token-based MFA setup failed:', tokenError.message);
+          console.log('- Token error status:', tokenError.response?.status);
+          console.log('- Token error details:', tokenError.response?.data);
+          
+          // If token is invalid/expired, clear it and try credentials
+          if (tokenError.message.includes('Invalid or expired token') || tokenError.response?.status === 401) {
+            console.log('🧹 Clearing invalid token from localStorage');
+            localStorage.removeItem('token');
+            
+            // Fall through to credentials approach
+            response = null;
+          } else {
+            throw tokenError; // Re-throw if it's not a token issue
+          }
+        }
+      }
+      
+      // Strategy 2: Try credentials-based approach if token approach failed or no token
+      if (!response && pendingMFASetup && tempCredentials) {
+        try {
+          attemptedMethod = 'credentials-based';
+          console.log('🎯 ATTEMPT 2: Using credentials-based MFA setup');
+          console.log('- Email:', tempCredentials.email);
+          console.log('- Password available:', !!tempCredentials.password);
+          
+          response = await authApi.setupMFAWithCredentials(
+            'authenticator',
+            tempCredentials.email!,
+            tempCredentials.password!
+          );
+          console.log('✅ Credentials-based MFA setup successful');
+        } catch (credentialsError: any) {
+          console.error('❌ Credentials-based MFA setup failed:', credentialsError.message);
+          console.log('- Credentials error status:', credentialsError.response?.status);
+          console.log('- Credentials error details:', credentialsError.response?.data);
+          throw credentialsError;
+        }
+      }
+      
+      // Strategy 3: If both approaches failed, provide clear error
+      if (!response) {
+        const errorDetails = {
+          hasToken: !!currentToken,
+          tokenType: currentToken === 'temp_mfa_setup' ? 'temp_mfa_setup' : currentToken ? 'token' : 'none',
+          hasCredentials: !!tempCredentials,
+          pendingMFASetup,
+          attemptedMethod
+        };
+        
+        console.error('❌ ALL MFA SETUP ATTEMPTS FAILED');
+        console.error('- Error details:', errorDetails);
+        console.error('- This suggests either:');
+        console.error('  1. Backend temporary token is invalid/expired');
+        console.error('  2. Backend credentials-based MFA setup is not working');
+        console.error('  3. User session has expired');
+        
+        throw new Error('Unable to initialize MFA setup. Please try logging in again.');
       }
       
       console.log('MFA Setup Response:', response);
@@ -146,9 +204,10 @@ export const MFASetupPage: React.FC = () => {
       
       let response;
       // Check if we have a valid token (including temporary token from backend)
-      if (currentToken && currentToken !== 'temp_mfa_setup') {
+      if (currentToken) {
         // Use token-based MFA verification with temporary or regular token
         console.log('✅ Using token-based MFA verification (token available)');
+        console.log('- Token type for verification:', currentToken === 'temp_mfa_setup' ? 'temp_mfa_setup' : 'backend_temporary_token');
         response = await authApi.verifyMFASetup('authenticator', verificationCode);
       } else if (pendingMFASetup && tempCredentials) {
         // Fallback: Use credentials-based MFA verification

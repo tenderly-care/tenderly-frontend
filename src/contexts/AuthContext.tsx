@@ -182,19 +182,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const checkAuth = async () => {
       const token = localStorage.getItem('token');
-      if (token && token !== 'temp_mfa_setup') {
+      
+      // Only check auth for real tokens, not temporary ones
+      if (token && !token.includes('temp') && token.length > 50) {
         try {
+          console.log('🔄 Checking existing token validity on mount...');
           dispatch({ type: 'AUTH_START' });
           const response = await authApi.getProfile();
+          console.log('✅ Existing token is valid, user authenticated');
           dispatch({
             type: 'AUTH_SUCCESS',
             payload: { user: response, token },
           });
         } catch (error) {
+          console.log('❌ Existing token is invalid, clearing...');
           localStorage.removeItem('token');
           localStorage.removeItem('refreshToken');
           dispatch({ type: 'AUTH_FAILURE', payload: 'Token expired' });
         }
+      } else if (token) {
+        console.log('⚠️ Found token on mount but not checking (temporary or invalid):', token.substring(0, 20) + '...');
+      } else {
+        console.log('ℹ️ No token found on mount');
       }
     };
 
@@ -204,18 +213,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Update localStorage when token changes
   useEffect(() => {
     if (state.token && state.token !== 'temp_mfa_setup') {
+      console.log('💾 Storing token in localStorage:', state.token.substring(0, 20) + '...');
       localStorage.setItem('token', state.token);
-    } else {
+    } else if (state.token === null) {
+      console.log('🗑️ Removing token from localStorage (token is null)');
       localStorage.removeItem('token');
+    } else {
+      console.log('⚠️ Not storing temp_mfa_setup token in localStorage');
     }
   }, [state.token]);
 
   const login = async (email: string, password: string) => {
     try {
+      console.log('🔐 Starting login process for:', email);
+      
+      // Clear any existing auth state to prevent conflicts
+      console.log('🧹 Clearing previous auth state...');
+      dispatch({ type: 'AUTH_FAILURE', payload: '' });
+      
+      // Start loading
       dispatch({ type: 'AUTH_START' });
       
       // Call the real backend API
+      console.log('📞 Calling backend login API...');
       const response = await authApi.login({ email, password });
+      console.log('📨 Backend response received');
+      
       
       console.log('Login response received:', response);
       
@@ -234,7 +257,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           payload: { 
             pending: true, 
             userData: { email, roles: ['healthcare_provider'] },
-            hasTemporaryToken: !!response.temporaryToken
+            hasTemporaryToken: !!response.temporaryToken,
+            tempCredentials: { email, password } // Store credentials for MFA setup
           } 
         });
         
