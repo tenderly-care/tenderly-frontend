@@ -16,10 +16,14 @@ import { MFASetupPage } from './pages/auth/MFASetupPage';
 import { DashboardPage } from './pages/dashboard/DashboardPage';
 import { DoctorDashboardPage } from './pages/dashboard/DoctorDashboardPage';
 import { ConsultationPage } from './pages/consultation/ConsultationPage';
+import { DoctorConsultationPage } from './pages/consultation/DoctorConsultationPage';
+import { ConsultationDetailsPage } from './pages/consultation/ConsultationDetailsPage';
 import { SymptomCollectionPage } from './pages/consultation/SymptomCollectionPage';
 import { PaymentPage } from './pages/payment/PaymentPage';
 import { PrescriptionPage } from './pages/prescription/PrescriptionPage';
+import { PrescriptionWorkspacePage } from './pages/prescription/PrescriptionWorkspacePage';
 import { ProfilePage } from './pages/profile/ProfilePage';
+import { DoctorProfilePage } from './pages/profile/DoctorProfilePage';
 import { NotFoundPage } from './pages/NotFoundPage';
 
 // Error Fallback Component
@@ -140,6 +144,50 @@ function App() {
                   <ProtectedRoute>
                     <Layout>
                       <DoctorDashboardPage />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+              
+              <Route
+                path="/prescription/workspace/:consultationId"
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <PrescriptionWorkspacePage />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+              
+              <Route
+                path="/doctor/consultations"
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <DoctorConsultationPage />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+              
+              <Route
+                path="/doctor/consultations/:id"
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <ConsultationDetailsPage />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+              
+              <Route
+                path="/doctor/profile"
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <DoctorProfilePage />
                     </Layout>
                   </ProtectedRoute>
                 }

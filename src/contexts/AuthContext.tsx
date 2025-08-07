@@ -1,7 +1,14 @@
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import axios from 'axios';
 import { authApi } from '../services/api/authApi';
+import config from '../config/env';
+
+// Simple device fingerprint generation
+const generateDeviceFingerprint = () => {
+  return navigator.userAgent + navigator.language + (navigator.platform || '');
+};
 
 // Types
 export interface User {
@@ -81,7 +88,14 @@ type AuthAction =
   | { type: 'CLEAR_ERROR' }
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'SET_REQUIRES_MFA'; payload: { requires: boolean; tempData?: any } }
-  | { type: 'SET_PENDING_MFA_SETUP'; payload: { pending: boolean; userData?: any } };
+  | { type: 'SET_PENDING_MFA_SETUP'; payload: { 
+      pending: boolean; 
+      userData?: any; 
+      tempCredentials?: any;
+      hasTemporaryToken?: boolean;
+      hasTempToken?: boolean;
+      needsBackendFix?: boolean;
+    } };
 
 // Initial State
 const initialState: AuthState = {
@@ -188,11 +202,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           console.log('🔄 Checking existing token validity on mount...');
           dispatch({ type: 'AUTH_START' });
-          const response = await authApi.getProfile();
+          
+          // Create a separate axios instance to avoid interceptor loop
+          const checkAuthApi = axios.create({
+            baseURL: config.apiUrl,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+          });
+          
+          const response = await checkAuthApi.get('/auth/me');
           console.log('✅ Existing token is valid, user authenticated');
           dispatch({
             type: 'AUTH_SUCCESS',
-            payload: { user: response, token },
+            payload: { user: response.data, token },
           });
         } catch (error) {
           console.log('❌ Existing token is invalid, clearing...');
@@ -236,7 +260,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       // Call the real backend API
       console.log('📞 Calling backend login API...');
-      const response = await authApi.login({ email, password });
+      console.log('🔍 Mobile Login - User Agent:', navigator.userAgent);
+      console.log('🔍 Mobile Login - API URL:', config.apiUrl);
+      
+      const response = await authApi.login({ 
+        email, 
+        password,
+        userAgent: navigator.userAgent,
+        deviceFingerprint: generateDeviceFingerprint(),
+        location: 'Unknown',
+      });
       console.log('📨 Backend response received');
       
       

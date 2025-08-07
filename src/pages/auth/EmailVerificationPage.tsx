@@ -45,35 +45,26 @@ export const EmailVerificationPage: React.FC = () => {
     try {
       setState(prev => ({ ...prev, isLoading: true }));
       
-      const response = await authApi.verifyEmail(verificationToken);
+      const response = await authApi.verifyEmail({ token: verificationToken });
       
-      if (response.success) {
-        setState({
-          status: 'success',
-          message: response.message || 'Email verified successfully! You can now log in to your account.',
-          isLoading: false,
-          isResending: false,
+      setState({
+        status: 'success',
+        message: response.message || 'Email verified successfully! You can now log in to your account.',
+        isLoading: false,
+        isResending: false,
+      });
+      
+      toast.success('Email verified successfully!');
+      
+      // Redirect to login after 3 seconds
+      setTimeout(() => {
+        navigate('/login', { 
+          state: { 
+            message: 'Email verified successfully! You can now log in to your account.',
+            email: email || ''
+          } 
         });
-        
-        toast.success('Email verified successfully!');
-        
-        // Redirect to login after 3 seconds
-        setTimeout(() => {
-          navigate('/login', { 
-            state: { 
-              message: 'Email verified successfully! You can now log in to your account.',
-              email: email || ''
-            } 
-          });
-        }, 3000);
-      } else {
-        setState({
-          status: 'error',
-          message: response.message || 'Email verification failed. Please try again.',
-          isLoading: false,
-          isResending: false,
-        });
-      }
+      }, 3000);
     } catch (error: any) {
       let status: VerificationStatus = 'error';
       let message = 'Email verification failed. Please try again.';

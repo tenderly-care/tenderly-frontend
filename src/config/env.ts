@@ -22,7 +22,7 @@ const getConfig = (): EnvConfig => {
   const nodeEnv = (import.meta.env.MODE || 'development') as 'development' | 'production' | 'test';
   
   return {
-    apiUrl: import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1',
+    apiUrl: import.meta.env.VITE_API_URL || '/api/v1',
     razorpayKey: import.meta.env.VITE_RAZORPAY_KEY || '',
     nodeEnv: nodeEnv,
     isProduction: nodeEnv === 'production',

@@ -28,6 +28,14 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // Debug logging
+  console.log('🏗️ Layout rendered:', {
+    pathname: location.pathname,
+    user: user ? { id: user.id, email: user.email, roles: user.roles } : null,
+    isDoctor: isDoctor(),
+    isPatient: isPatient()
+  });
+
   const patientNavigation = [
     { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
     { name: 'Consultations', href: '/consultation', icon: ChatBubbleLeftRightIcon },
@@ -39,11 +47,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const doctorNavigation = [
     { name: 'Dashboard', href: '/doctor/dashboard', icon: HomeIcon },
-    { name: 'Patients', href: '/patients', icon: UserGroupIcon },
-    { name: 'Consultations', href: '/consultations', icon: ChatBubbleLeftRightIcon },
-    { name: 'Prescriptions', href: '/prescriptions', icon: DocumentTextIcon },
-    { name: 'Schedule', href: '/schedule', icon: CalendarIcon },
-    { name: 'Analytics', href: '/analytics', icon: ChartBarIcon },
+    { name: 'My Consultations', href: '/doctor/consultations', icon: ChatBubbleLeftRightIcon },
     { name: 'Profile', href: '/doctor/profile', icon: UserIcon },
   ];
 

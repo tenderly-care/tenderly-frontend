@@ -29,6 +29,11 @@ export const DoctorDashboardPage: React.FC = () => {
   const { user } = useAuth();
   const [selectedTimeframe, setSelectedTimeframe] = useState('week');
 
+  // Debug logging
+  console.log('🔍 DoctorDashboardPage rendered');
+  console.log('👤 User:', user);
+  console.log('🔐 Is authenticated:', !!user);
+
   // Mock data - in real app, this would come from API
   const stats = [
     {
@@ -267,12 +272,12 @@ export const DoctorDashboardPage: React.FC = () => {
           <div className="px-6 py-4 border-b border-gray-200">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900">Recent Consultations</h3>
-              <Link
-                to="/consultations"
-                className="text-blue-600 hover:text-blue-500 text-sm font-medium"
-              >
-                View all
-              </Link>
+                        <Link
+            to="/doctor/consultations"
+            className="text-blue-600 hover:text-blue-500 text-sm font-medium"
+          >
+            View all
+          </Link>
             </div>
           </div>
           <div className="divide-y divide-gray-200">
@@ -390,12 +395,12 @@ export const DoctorDashboardPage: React.FC = () => {
         <div className="px-6 py-4 border-b border-gray-200">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-gray-900">Pending Prescriptions</h3>
-            <Link
-              to="/prescriptions"
-              className="text-blue-600 hover:text-blue-500 text-sm font-medium"
-            >
-              View all
-            </Link>
+                      <Link
+            to="/doctor/consultations"
+            className="text-blue-600 hover:text-blue-500 text-sm font-medium"
+          >
+            View all
+          </Link>
           </div>
         </div>
         <div className="divide-y divide-gray-200">
@@ -454,18 +459,18 @@ export const DoctorDashboardPage: React.FC = () => {
           </Link>
           
           <Link
-            to="/patients"
+            to="/doctor/consultations"
             className="flex items-center p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-colors"
           >
             <UserGroupIcon className="h-6 w-6 text-green-600 mr-3" />
             <div>
-              <p className="font-medium text-gray-900">Patient Records</p>
-              <p className="text-sm text-gray-600">View patient history</p>
+              <p className="font-medium text-gray-900">My Consultations</p>
+              <p className="text-sm text-gray-600">Manage patient consultations</p>
             </div>
           </Link>
           
           <Link
-            to="/prescriptions"
+            to="/doctor/consultations"
             className="flex items-center p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-colors"
           >
             <DocumentTextIcon className="h-6 w-6 text-orange-600 mr-3" />
