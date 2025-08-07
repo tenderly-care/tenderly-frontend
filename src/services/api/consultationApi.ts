@@ -1,7 +1,7 @@
 import axios from 'axios';
 import config from '../../config/env';
 
-const API_BASE_URL = config.API_URL;
+const API_BASE_URL = config.apiUrl;
 
 // Create axios instance with default config
 const apiClient = axios.create({
@@ -18,6 +18,12 @@ apiClient.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    console.log('🔗 Consultation API Request:', {
+      method: config.method?.toUpperCase(),
+      url: `${config.baseURL}${config.url}`,
+      hasToken: !!token,
+      tokenPreview: token ? token.substring(0, 20) + '...' : 'none'
+    });
     return config;
   },
   (error) => {
@@ -25,23 +31,134 @@ apiClient.interceptors.request.use(
   }
 );
 
+// Response interceptor for better error handling
+apiClient.interceptors.response.use(
+  (response) => {
+    console.log('✅ Consultation API Response:', {
+      status: response.status,
+      url: response.config.url,
+      dataType: typeof response.data,
+      isArray: Array.isArray(response.data)
+    });
+    return response;
+  },
+  (error) => {
+    console.error('❌ Consultation API Error:', {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      url: error.config?.url,
+      method: error.config?.method,
+      message: error.response?.data?.message || error.message,
+      baseURL: error.config?.baseURL
+    });
+    return Promise.reject(error);
+  }
+);
+
 export interface Consultation {
-  id: string;
-  sessionId: string;
-  patientId: string;
-  doctorId?: string;
+  _id: string;
+  id?: string; // For compatibility
+  patientId: {
+    _id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+  };
+  doctorId: string;
+  doctorInfo: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+    specialization: string;
+    assignedAt: string;
+    assignedBy: string;
+  };
+  consultationId: string;
+  clinicalSessionId: string;
+  status: 'active' | 'clinical_assessment_complete' | 'completed' | 'cancelled' | 'pending';
   consultationType: 'chat' | 'tele' | 'video' | 'emergency';
-  status: 'pending' | 'active' | 'completed' | 'cancelled';
-  symptoms: string[];
-  diagnosis?: string;
-  prescription?: string;
-  paymentStatus: 'pending' | 'paid' | 'failed' | 'refunded';
-  amount: number;
-  currency: string;
+  priority: 'normal' | 'high' | 'low';
+  isActive: boolean;
+  activatedAt: string;
+  expiresAt: string;
+  sessionCount: number;
+  messageCount: number;
+  paymentInfo: {
+    paymentId: string;
+    paymentStatus: 'completed' | 'pending' | 'failed' | 'refunded';
+    amount: number;
+    currency: string;
+    paidAt: string;
+    transactionId: string;
+    gatewayResponse: any;
+  };
+  prescriptionStatus: 'not_started' | 'draft' | 'completed';
+  prescriptionHistory: any[];
+  chatHistory: any[];
+  statusHistory: {
+    status: string;
+    changedAt: string;
+    changedBy: string;
+    reason: string;
+    metadata?: any;
+  }[];
+  businessRules: string[];
+  requiresFollowUp: boolean;
+  isQualityReviewed: boolean;
+  metadata: {
+    ipAddress: string;
+    userAgent: string;
+    source: string;
+    referralSource: string;
+    doctorAssignmentMethod: string;
+  };
+  isDeleted: boolean;
   createdAt: string;
   updatedAt: string;
-  scheduledAt?: string;
-  completedAt?: string;
+  __v: number;
+  aiAgentOutput?: {
+    request_id: string;
+    patient_age: number;
+    primary_symptom: string;
+    possible_diagnoses: {
+      name: string;
+      confidence_score: number;
+      description: string;
+    }[];
+    clinical_reasoning: string;
+    differential_considerations: string[];
+    safety_assessment: any;
+    risk_assessment: any;
+    recommended_investigations: any[];
+    treatment_recommendations: any;
+    patient_education: string[];
+    warning_signs: string[];
+    confidence_score: number;
+    processing_notes: string[];
+    disclaimer: string;
+    timestamp: string;
+  };
+  structuredAssessmentInput?: {
+    patient_profile: {
+      age: number;
+      request_id: string;
+      timestamp: string;
+    };
+    primary_complaint: {
+      main_symptom: string;
+      duration: string;
+      severity: string;
+      onset: string;
+      progression: string;
+    };
+    symptom_specific_details: any;
+    reproductive_history: any;
+    associated_symptoms: any;
+    medical_context: any;
+    healthcare_interaction: any;
+    patient_concerns: any;
+  };
 }
 
 export interface SymptomScreening {
@@ -97,6 +214,12 @@ export const consultationApi = {
   // Get all consultations for current user
   getConsultations: async (): Promise<Consultation[]> => {
     const response = await apiClient.get('/consultations');
+    return response.data;
+  },
+
+  // Get all consultations for the current doctor
+  getDoctorConsultations: async (): Promise<Consultation[]> => {
+    const response = await apiClient.get('/consultations/doctor/me');
     return response.data;
   },
 

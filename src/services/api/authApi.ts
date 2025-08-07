@@ -9,6 +9,9 @@ const api = axios.create({
   },
 });
 
+// Flag to prevent multiple refresh attempts
+let isRefreshing = false;
+
 // Request interceptor to add auth token
 api.interceptors.request.use(
   (config) => {
@@ -21,7 +24,10 @@ api.interceptors.request.use(
         tokenType: token === 'temp_mfa_setup' ? 'temp_mfa_setup' : 'backend_token'
       });
     } else {
-      console.log('⚠️ No token available for request:', config.url);
+      // Only log for non-refresh requests to reduce noise
+      if (!config.url?.includes('/auth/refresh')) {
+        console.log('⚠️ No token available for request:', config.url);
+      }
     }
     return config;
   },
@@ -38,14 +44,24 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    // If 401 and we haven't tried to refresh yet
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // If 401 and we haven't tried to refresh yet, and it's not a refresh request itself
+    if (error.response?.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/auth/refresh') && !isRefreshing) {
       originalRequest._retry = true;
+      isRefreshing = true;
 
       try {
         const refreshToken = localStorage.getItem('refreshToken');
         if (refreshToken) {
-          const response = await api.post('/auth/refresh', {
+          // Create a separate axios instance for refresh to avoid interceptor loop
+          const refreshApi = axios.create({
+            baseURL: config.apiUrl,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            timeout: 10000, // 10 second timeout
+          });
+
+          const response = await refreshApi.post('/auth/refresh', {
             refreshToken,
           });
 
@@ -55,12 +71,20 @@ api.interceptors.response.use(
 
           // Retry the original request
           originalRequest.headers.Authorization = `Bearer ${accessToken}`;
+          isRefreshing = false;
           return api(originalRequest);
+        } else {
+          // No refresh token available, redirect to login
+          localStorage.removeItem('token');
+          localStorage.removeItem('refreshToken');
+          isRefreshing = false;
+          window.location.href = '/login';
         }
       } catch (refreshError) {
         // Refresh failed, redirect to login
         localStorage.removeItem('token');
         localStorage.removeItem('refreshToken');
+        isRefreshing = false;
         window.location.href = '/login';
       }
     }
@@ -315,9 +339,9 @@ export const authApi = {
   /**
    * Verify MFA setup for authenticated users
    */
-  async verifyMFASetup(method: 'sms' | 'email' | 'authenticator', code: string): Promise<{ message: string }> {
+  async verifyMFASetup(method: 'sms' | 'email' | 'authenticator', code: string): Promise<{ message: string; accessToken?: string; refreshToken?: string }> {
     try {
-      const response = await api.post<{ message: string }>('/auth/mfa/verify-setup', { method, code });
+      const response = await api.post<{ message: string; accessToken?: string; refreshToken?: string }>('/auth/mfa/verify-setup', { method, code });
       return response.data;
     } catch (error: any) {
       throw new Error(error.response?.data?.message || 'MFA verification failed');
@@ -327,9 +351,9 @@ export const authApi = {
   /**
    * Verify MFA setup for users who need to authenticate with email/password
    */
-  async verifyMFASetupWithCredentials(method: 'sms' | 'email' | 'authenticator', code: string, email: string, password: string): Promise<{ message: string }> {
+  async verifyMFASetupWithCredentials(method: 'sms' | 'email' | 'authenticator', code: string, email: string, password: string): Promise<{ message: string; accessToken?: string; refreshToken?: string }> {
     try {
-      const response = await api.post<{ message: string }>('/auth/mfa/verify-setup', {
+      const response = await api.post<{ message: string; accessToken?: string; refreshToken?: string }>('/auth/mfa/verify-setup', {
         method,
         code,
         email,
@@ -340,6 +364,18 @@ export const authApi = {
       return response.data;
     } catch (error: any) {
       throw new Error(error.response?.data?.message || 'MFA verification failed');
+    }
+  },
+
+  /**
+   * Resend email verification
+   */
+  async resendVerificationEmail(email: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const response = await api.post<{ message: string }>('/auth/resend-verification', { email });
+      return { success: true, message: response.data.message };
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to resend verification email');
     }
   },
 
