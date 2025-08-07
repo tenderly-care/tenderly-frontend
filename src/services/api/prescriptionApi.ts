@@ -210,4 +210,4 @@ export const prescriptionApi = {
     const response = await apiClient.post(`/consultations/${consultationId}/prescription/complete-consultation`);
     return response.data;
   },
-}; 
+};

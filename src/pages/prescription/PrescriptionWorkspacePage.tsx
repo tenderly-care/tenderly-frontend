@@ -68,9 +68,20 @@ export const PrescriptionWorkspacePage: React.FC = () => {
       setWorkspace(data);
       
       if (data.doctorDiagnosis) {
+        // Handle both object and string formats for diagnoses
+        const primaryDiagnosis = data.doctorDiagnosis.possible_diagnoses?.[0];
+        const primaryDiagnosisText = typeof primaryDiagnosis === 'object' && primaryDiagnosis && 'name' in primaryDiagnosis
+          ? (primaryDiagnosis as any).name 
+          : (typeof primaryDiagnosis === 'string' ? primaryDiagnosis : '');
+        
+        const differentialDiagnosis = data.doctorDiagnosis.possible_diagnoses?.slice(1) || [];
+        const differentialDiagnosisText = differentialDiagnosis.map((d: any) => 
+          typeof d === 'object' && d && 'name' in d ? (d as any).name : (typeof d === 'string' ? d : '')
+        ).filter(Boolean);
+        
         setDiagnosisForm({
-          primaryDiagnosis: data.doctorDiagnosis.possible_diagnoses[0] || '',
-          differentialDiagnosis: data.doctorDiagnosis.possible_diagnoses.slice(1) || [''],
+          primaryDiagnosis: primaryDiagnosisText,
+          differentialDiagnosis: differentialDiagnosisText.length > 0 ? differentialDiagnosisText : [''],
           clinicalReasoning: data.doctorDiagnosis.clinical_reasoning || '',
           confidenceScore: data.doctorDiagnosis.confidence_score || 85,
         });

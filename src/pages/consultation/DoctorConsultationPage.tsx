@@ -20,7 +20,8 @@ import {
 import { consultationApi, Consultation } from '../../services/api/consultationApi';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 
-interface ConsultationWithPatient extends Consultation {
+interface ConsultationWithPatient extends Omit<Consultation, 'patientId'> {
+  patientId: string; // Override to be string ID instead of object
   patientName: string;
   patientAge?: number;
   patientGender?: string;

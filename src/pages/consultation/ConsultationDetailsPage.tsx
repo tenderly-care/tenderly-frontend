@@ -18,11 +18,16 @@ import {
   LightBulbIcon,
   ShieldCheckIcon,
   ClipboardDocumentListIcon,
-  SparklesIcon
+  SparklesIcon,
+  DocumentArrowDownIcon,
+  DocumentMagnifyingGlassIcon,
+  CheckBadgeIcon,
+  FlagIcon
 } from '@heroicons/react/24/outline';
 import { toast } from 'react-hot-toast';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { consultationApi } from '../../services/api/consultationApi';
+import { config } from '../../config/env';
 
 // Define interfaces matching backend DTOs
 interface ConsultationDetails {
@@ -46,7 +51,24 @@ interface ConsultationDetails {
     paidAt?: string;
   };
   structuredAssessmentInput?: any;
-  aiAgentOutput?: any;
+  aiAgentOutput?: {
+    possible_diagnoses?: Array<{
+      name: string;
+      confidence_score: number;
+      description?: string;
+    }>;
+    clinical_reasoning?: string;
+    treatment_recommendations?: {
+      primary_treatment?: string;
+      safe_medications?: string[];
+      lifestyle_modifications?: string[];
+      dietary_advice?: string[];
+      follow_up_timeline?: string;
+    };
+    patient_education?: string[];
+    warning_signs?: string[];
+    confidence_score?: number;
+  };
   doctorDiagnosis?: {
     possible_diagnoses: string[];
     clinical_reasoning: string;
@@ -104,6 +126,10 @@ export const ConsultationDetailsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'overview' | 'assessment' | 'ai-diagnosis' | 'doctor-diagnosis' | 'prescription'>('overview');
   const [isDiagnosisEditing, setIsDiagnosisEditing] = useState(false);
   const [diagnosisModifications, setDiagnosisModifications] = useState<any>({});
+  const [isPrescriptionActionLoading, setIsPrescriptionActionLoading] = useState(false);
+  const [showPrescriptionActions, setShowPrescriptionActions] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     if (id) {
@@ -154,7 +180,7 @@ export const ConsultationDetailsPage: React.FC = () => {
 
       // Load prescription workspace if doctor diagnosis exists or can be created
       try {
-        const workspaceResponse = await fetch(`/api/v1/consultations/${id}/prescription/workspace`, {
+        const workspaceResponse = await fetch(`${config.apiUrl}/consultations/${id}/prescription/workspace`, {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`,
             'Content-Type': 'application/json',
@@ -195,7 +221,7 @@ export const ConsultationDetailsPage: React.FC = () => {
 
   const handleModifyDiagnosis = async () => {
     try {
-      const response = await fetch(`/api/v1/consultations/${id}/prescription/diagnosis/modify`, {
+      const response = await fetch(`${config.apiUrl}/consultations/${id}/prescription/diagnosis/modify`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -221,7 +247,7 @@ export const ConsultationDetailsPage: React.FC = () => {
 
   const initializeDiagnosis = async () => {
     try {
-      const response = await fetch(`/api/v1/consultations/${id}/prescription/diagnosis/modify`, {
+      const response = await fetch(`${config.apiUrl}/consultations/${id}/prescription/diagnosis/modify`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -245,6 +271,281 @@ export const ConsultationDetailsPage: React.FC = () => {
 
   const navigateToPrescription = () => {
     navigate(`/prescription/workspace/${id}`);
+  };
+
+  const handleSavePrescriptionDraft = async () => {
+    try {
+      setIsPrescriptionActionLoading(true);
+      setActionError(null);
+      
+      // Get current prescription data from workspace
+      const workspaceData = prescriptionWorkspace;
+      if (!workspaceData) {
+        toast.error('No prescription workspace data available');
+        return;
+      }
+
+      const response = await makeApiCall(
+        `${config.apiUrl}/consultations/${id}/prescription/draft`,
+        {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (response.ok) {
+        const result = await response.json();
+        toast.success(result.message || 'Prescription draft saved successfully');
+        setRetryCount(0);
+        loadConsultationDetails();
+      } else {
+        const errorData = await response.json();
+        const errorMessage = errorData.message || 'Failed to save prescription draft';
+        setActionError(errorMessage);
+        toast.error(errorMessage);
+      }
+    } catch (error: any) {
+      handleApiError(error, 'save prescription draft');
+    } finally {
+      setIsPrescriptionActionLoading(false);
+    }
+  };
+
+  const handleGeneratePDFPreview = async () => {
+    try {
+      setIsPrescriptionActionLoading(true);
+      setActionError(null);
+      
+      const response = await makeApiCall(
+        `${config.apiUrl}/consultations/${id}/prescription/generate-preview`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (response.ok) {
+        const result = await response.json();
+        
+        // Download the PDF from the URL provided by the backend
+        if (result.draftPdfUrl) {
+          try {
+            const pdfResponse = await makeApiCall(result.draftPdfUrl, {
+              headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+              },
+            });
+            
+            if (pdfResponse.ok) {
+              const blob = await pdfResponse.blob();
+              const url = window.URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `prescription-preview-${consultation?.consultationId}.pdf`;
+              document.body.appendChild(a);
+              a.click();
+              window.URL.revokeObjectURL(url);
+              document.body.removeChild(a);
+              toast.success(result.message || 'PDF preview generated and downloaded successfully');
+            } else {
+              toast.error('Failed to download PDF preview');
+            }
+          } catch (pdfError) {
+            console.error('Error downloading PDF:', pdfError);
+            toast.error('PDF generated but failed to download. Please try again.');
+          }
+        } else {
+          toast.success(result.message || 'PDF preview generated successfully');
+        }
+        
+        setRetryCount(0);
+        loadConsultationDetails();
+      } else {
+        const errorData = await response.json();
+        const errorMessage = errorData.message || 'Failed to generate PDF preview';
+        setActionError(errorMessage);
+        toast.error(errorMessage);
+      }
+    } catch (error: any) {
+      handleApiError(error, 'generate PDF preview');
+    } finally {
+      setIsPrescriptionActionLoading(false);
+    }
+  };
+
+  const handleSignAndSendPrescription = async () => {
+    try {
+      setIsPrescriptionActionLoading(true);
+      setActionError(null);
+      
+      // Prompt for password confirmation
+      const password = prompt('Please enter your password to sign the prescription:');
+      if (!password) {
+        toast.error('Password is required to sign prescription');
+        return;
+      }
+
+      const response = await makeApiCall(
+        `${config.apiUrl}/consultations/${id}/prescription/sign-and-send`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            password: password,
+            mfaCode: undefined // Optional MFA code if needed
+          }),
+        }
+      );
+
+      if (response.ok) {
+        const result = await response.json();
+        toast.success(result.message || 'Prescription signed and sent to patient successfully');
+        
+        // Download the signed PDF if available
+        if (result.signedPdfUrl) {
+          try {
+            const pdfResponse = await makeApiCall(result.signedPdfUrl, {
+              headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+              },
+            });
+            
+            if (pdfResponse.ok) {
+              const blob = await pdfResponse.blob();
+              const url = window.URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `signed-prescription-${consultation?.consultationId}.pdf`;
+              document.body.appendChild(a);
+              a.click();
+              window.URL.revokeObjectURL(url);
+              document.body.removeChild(a);
+            }
+          } catch (pdfError) {
+            console.error('Error downloading signed PDF:', pdfError);
+            toast.error('Prescription signed but failed to download PDF. Please try again.');
+          }
+        }
+        
+        setRetryCount(0);
+        loadConsultationDetails();
+      } else {
+        const errorData = await response.json();
+        const errorMessage = errorData.message || 'Failed to sign and send prescription';
+        setActionError(errorMessage);
+        toast.error(errorMessage);
+      }
+    } catch (error: any) {
+      handleApiError(error, 'sign and send prescription');
+    } finally {
+      setIsPrescriptionActionLoading(false);
+    }
+  };
+
+  // Utility function for API calls with retry logic
+  const makeApiCall = async (
+    url: string,
+    options: RequestInit,
+    maxRetries: number = 3
+  ): Promise<Response> => {
+    let lastError: any;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await fetch(url, options);
+        
+        // If it's a server error (5xx), retry
+        if (response.status >= 500 && attempt < maxRetries) {
+          console.warn(`API call failed (attempt ${attempt}/${maxRetries}), retrying...`);
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); // Exponential backoff
+          continue;
+        }
+        
+        return response;
+      } catch (error) {
+        lastError = error;
+        if (attempt < maxRetries) {
+          console.warn(`API call failed (attempt ${attempt}/${maxRetries}), retrying...`);
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        }
+      }
+    }
+    
+    throw lastError;
+  };
+
+  // Enhanced error handling
+  const handleApiError = (error: any, action: string) => {
+    console.error(`Error in ${action}:`, error);
+    
+    let errorMessage = `Failed to ${action.toLowerCase()}. Please try again.`;
+    
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      errorMessage = 'Network error. Please check your connection and try again.';
+    } else if (error.status === 401) {
+      errorMessage = 'Authentication failed. Please log in again.';
+    } else if (error.status === 403) {
+      errorMessage = 'You do not have permission to perform this action.';
+    } else if (error.status === 404) {
+      errorMessage = 'Resource not found. Please refresh the page and try again.';
+    } else if (error.status >= 500) {
+      errorMessage = 'Server error. Please try again later.';
+    }
+    
+    setActionError(errorMessage);
+    toast.error(errorMessage);
+  };
+
+  const handleCompleteConsultation = async () => {
+    try {
+      setIsPrescriptionActionLoading(true);
+      setActionError(null);
+      
+      // Confirm completion with user
+      const confirmed = window.confirm(
+        'Are you sure you want to mark this consultation as completed? This action cannot be undone.'
+      );
+      
+      if (!confirmed) {
+        return;
+      }
+
+      const response = await makeApiCall(
+        `${config.apiUrl}/consultations/${id}/prescription/complete-consultation`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (response.ok) {
+        const result = await response.json();
+        toast.success(result.message || 'Consultation marked as completed successfully');
+        setRetryCount(0);
+        loadConsultationDetails();
+      } else {
+        const errorData = await response.json();
+        const errorMessage = errorData.message || 'Failed to complete consultation';
+        setActionError(errorMessage);
+        toast.error(errorMessage);
+      }
+    } catch (error: any) {
+      handleApiError(error, 'complete consultation');
+    } finally {
+      setIsPrescriptionActionLoading(false);
+    }
   };
 
   if (loading) {
@@ -442,9 +743,25 @@ export const ConsultationDetailsPage: React.FC = () => {
           if (typeof value === 'boolean') return value ? 'Yes' : 'No';
           if (Array.isArray(value)) {
             if (value.length === 0) return 'None';
-            return value.map(item => 
-              typeof item === 'object' ? JSON.stringify(item) : String(item)
-            ).join(', ');
+            return value.map(item => {
+              if (typeof item === 'object') {
+                // Handle diagnosis objects specifically
+                if (item.name && typeof item.name === 'string') {
+                  const parts = [item.name];
+                  if (item.description) parts.push(item.description);
+                  if (typeof item.confidence_score === 'number') {
+                    parts.push(`(Confidence: ${Math.round(item.confidence_score * 100)}%)`);
+                  }
+                  return parts.join(' - ');
+                }
+                // For other objects, create a readable string
+                return Object.entries(item)
+                  .filter(([_, v]) => v !== null && v !== undefined && v !== '')
+                  .map(([k, v]) => `${k}: ${String(v)}`)
+                  .join(', ');
+              }
+              return String(item);
+            }).join(', ');
           }
           if (typeof value === 'object') {
             return Object.entries(value)
@@ -518,247 +835,260 @@ export const ConsultationDetailsPage: React.FC = () => {
 
       case 'ai-diagnosis':
         try {
-          // Debug logging to understand the data structure
-          console.log('🔍 AI Diagnosis Rendering Debug:');
-          console.log('- consultation.aiAgentOutput:', consultation.aiAgentOutput);
-          console.log('- possible_diagnoses:', consultation.aiAgentOutput?.possible_diagnoses);
-          console.log('- possible_diagnoses type:', typeof consultation.aiAgentOutput?.possible_diagnoses);
-          console.log('- possible_diagnoses isArray:', Array.isArray(consultation.aiAgentOutput?.possible_diagnoses));
-          console.log('- treatment_recommendations:', consultation.aiAgentOutput?.treatment_recommendations);
-          console.log('- safe_medications:', consultation.aiAgentOutput?.treatment_recommendations?.safe_medications);
-          console.log('- safe_medications type:', typeof consultation.aiAgentOutput?.treatment_recommendations?.safe_medications);
-          console.log('- safe_medications isArray:', Array.isArray(consultation.aiAgentOutput?.treatment_recommendations?.safe_medications));
-          if (consultation.aiAgentOutput?.treatment_recommendations?.safe_medications) {
-            console.log('- First medication sample:', consultation.aiAgentOutput.treatment_recommendations.safe_medications[0]);
+          // Ultimate string-only converter - never returns objects
+          const toSafeString = (value: any): string => {
+            try {
+              // Handle null and undefined
+              if (value === null || value === undefined) {
+                return 'Not available';
+              }
+              
+              // Handle primitives
+              if (typeof value === 'string') {
+                return value;
+              }
+              
+              if (typeof value === 'number') {
+                return String(value);
+              }
+              
+              if (typeof value === 'boolean') {
+                return value ? 'Yes' : 'No';
+              }
+              
+              // Handle arrays
+              if (Array.isArray(value)) {
+                return value.map(item => toSafeString(item)).join('\n');
+              }
+              
+              // Handle objects
+              if (typeof value === 'object') {
+                              // Handle specific diagnosis object structure {name, confidence_score, description}
+              if (value.name && typeof value.name === 'string') {
+                const parts: string[] = [value.name];
+                
+                if (value.description && typeof value.description === 'string') {
+                  parts.push(value.description);
+                }
+                
+                if (typeof value.confidence_score === 'number') {
+                  parts.push(`(Confidence: ${Math.round(value.confidence_score * 100)}%)`);
+                }
+                
+                return parts.join(' - ');
+              }
+                
+                // Extract other common meaningful properties
+                const meaningfulParts: string[] = [];
+                
+                if (value.name && typeof value.name === 'string') {
+                  meaningfulParts.push(value.name);
+                }
+                if (value.title && typeof value.title === 'string') {
+                  meaningfulParts.push(value.title);
+                }
+                if (value.description && typeof value.description === 'string') {
+                  meaningfulParts.push(value.description);
+                }
+                
+                // If we found meaningful text, return it
+                if (meaningfulParts.length > 0) {
+                  return meaningfulParts.join(' - ');
+                }
+                
+                // Try to create a string representation from key properties
+                const summary: string[] = [];
+                
+                if (value.dosage) summary.push(`Dosage: ${toSafeString(value.dosage)}`);
+                if (value.frequency) summary.push(`Frequency: ${toSafeString(value.frequency)}`);
+                if (value.duration) summary.push(`Duration: ${toSafeString(value.duration)}`);
+                if (value.reason) summary.push(`Reason: ${toSafeString(value.reason)}`);
+                if (value.notes) summary.push(`Notes: ${toSafeString(value.notes)}`);
+                if (value.severity) summary.push(`Severity: ${toSafeString(value.severity)}`);
+                if (typeof value.confidence_score === 'number') {
+                  summary.push(`Confidence: ${Math.round(value.confidence_score * 100)}%`);
+                }
+                
+                if (summary.length > 0) {
+                  return summary.join(' | ');
+                }
+                
+                // Final fallback - safe object representation
+                try {
+                  // Instead of JSON.stringify, create a safe string representation
+                  const entries = Object.entries(value);
+                  if (entries.length === 0) {
+                    return '[Empty Object]';
+                  }
+                  
+                  return entries
+                    .filter(([key, val]) => val !== null && val !== undefined && val !== '')
+                    .map(([key, val]) => `${key}: ${toSafeString(val)}`)
+                    .join(' | ');
+                } catch {
+                  return '[Complex Object]';
+                }
+              }
+              
+              // Final fallback for any other type
+              return String(value);
+              
+            } catch (error) {
+              console.error('toSafeString conversion error:', error, 'for value:', value);
+              return '[Conversion Error]';
+            }
+          };
+
+          // Debug logging
+          console.log('🔍 AI Diagnosis Debug - checking data structure');
+          console.log('aiAgentOutput:', consultation.aiAgentOutput);
+          if (consultation.aiAgentOutput?.possible_diagnoses) {
+            console.log('possible_diagnoses sample:', consultation.aiAgentOutput.possible_diagnoses[0]);
           }
 
-          return consultation.aiAgentOutput ? (
+          if (!consultation.aiAgentOutput) {
+            return (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
+                <SparklesIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No AI Diagnosis Available</h3>
+                <p className="text-gray-600">AI diagnosis output is not available for this consultation.</p>
+              </div>
+            );
+          }
+
+          const aiData = consultation.aiAgentOutput;
+          const sections: Array<{ title: string; content: string; color: string }> = [];
+
+          // Process each section, ensuring all content is converted to strings
+          if (aiData.possible_diagnoses) {
+            const diagnosesContent = Array.isArray(aiData.possible_diagnoses) 
+              ? aiData.possible_diagnoses.map((d: any) => {
+                  // Handle both object and string formats
+                  if (typeof d === 'object' && d.name) {
+                    const parts = [d.name];
+                    if (d.description) parts.push(d.description);
+                    if (d.confidence_score) parts.push(`(Confidence: ${Math.round(d.confidence_score * 100)}%)`);
+                    return parts.join(' - ');
+                  }
+                  return toSafeString(d);
+                }).join('\n')
+              : toSafeString(aiData.possible_diagnoses);
+              
+            sections.push({
+              title: 'Possible Diagnoses',
+              color: 'purple',
+              content: diagnosesContent
+            });
+          }
+
+          if (aiData.clinical_reasoning) {
+            sections.push({
+              title: 'Clinical Reasoning',
+              color: 'yellow',
+              content: toSafeString(aiData.clinical_reasoning)
+            });
+          }
+
+          if (aiData.treatment_recommendations) {
+            let treatmentContent = '';
+            
+            if (aiData.treatment_recommendations.primary_treatment) {
+              treatmentContent += `Primary Treatment: ${toSafeString(aiData.treatment_recommendations.primary_treatment)}\n\n`;
+            }
+            
+            if (aiData.treatment_recommendations.safe_medications) {
+              treatmentContent += `Safe Medications: ${toSafeString(aiData.treatment_recommendations.safe_medications)}\n\n`;
+            }
+            
+            if (treatmentContent) {
+              sections.push({
+                title: 'Treatment Recommendations',
+                color: 'red',
+                content: treatmentContent.trim()
+              });
+            }
+          }
+
+          if (aiData.patient_education) {
+            sections.push({
+              title: 'Patient Education',
+              color: 'indigo',
+              content: toSafeString(aiData.patient_education)
+            });
+          }
+
+          if (aiData.warning_signs) {
+            sections.push({
+              title: 'Warning Signs',
+              color: 'orange',
+              content: toSafeString(aiData.warning_signs)
+            });
+          }
+
+          return (
             <div className="space-y-6">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-              <div className="bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-4">
-                <h3 className="text-lg font-semibold text-white flex items-center">
-                  <SparklesIcon className="h-5 w-5 mr-2" />
-                  AI Diagnosis Output
-                </h3>
-              </div>
-              <div className="p-6 space-y-6">
-                {/* Primary Diagnosis */}
-                {consultation.aiAgentOutput.possible_diagnoses && (
-                  <div>
-                    <h4 className="font-medium text-gray-900 mb-3 flex items-center">
-                      <BeakerIcon className="h-5 w-5 mr-2 text-purple-600" />
-                      Possible Diagnoses
-                    </h4>
-                    <div className="space-y-2">
-                      {Array.isArray(consultation.aiAgentOutput.possible_diagnoses) ? 
-                        consultation.aiAgentOutput.possible_diagnoses.map((diagnosis: any, index: number) => (
-                          <div key={index} className="bg-purple-50 border border-purple-200 rounded-lg p-3">
-                            {typeof diagnosis === 'string' ? (
-                              <p className="font-medium text-purple-900">{diagnosis}</p>
-                            ) : (
-                              <div>
-                                <p className="font-medium text-purple-900">{diagnosis.name || 'Unnamed diagnosis'}</p>
-                                {diagnosis.confidence_score && (
-                                  <p className="text-sm text-purple-700 mt-1">
-                                    Confidence: {Math.round(diagnosis.confidence_score * 100)}%
-                                  </p>
-                                )}
-                                {diagnosis.description && (
-                                  <p className="text-sm text-gray-600 mt-2">{diagnosis.description}</p>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )) : (
-                          <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
-                            <p className="font-medium text-purple-900">{String(consultation.aiAgentOutput.possible_diagnoses)}</p>
-                          </div>
-                        )
-                      }
-                    </div>
-                  </div>
-                )}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-4">
+                  <h3 className="text-lg font-semibold text-white flex items-center">
+                    <SparklesIcon className="h-5 w-5 mr-2" />
+                    AI Diagnosis Output
+                  </h3>
+                </div>
+                <div className="p-6 space-y-6">
+                  {sections.map((section, index) => {
+                    const bgColor = {
+                      purple: 'bg-purple-50 border-purple-200',
+                      yellow: 'bg-yellow-50 border-yellow-200',
+                      red: 'bg-red-50 border-red-200',
+                      indigo: 'bg-indigo-50 border-indigo-200',
+                      orange: 'bg-orange-50 border-orange-200'
+                    }[section.color] || 'bg-gray-50 border-gray-200';
 
-                {/* Clinical Reasoning */}
-                {consultation.aiAgentOutput.clinical_reasoning && (
-                  <div>
-                    <h4 className="font-medium text-gray-900 mb-3 flex items-center">
-                      <LightBulbIcon className="h-5 w-5 mr-2 text-yellow-600" />
-                      Clinical Reasoning
-                    </h4>
-                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                      <p className="text-gray-700">{consultation.aiAgentOutput.clinical_reasoning}</p>
-                    </div>
-                  </div>
-                )}
+                    const textColor = {
+                      purple: 'text-purple-900',
+                      yellow: 'text-yellow-900',
+                      red: 'text-red-900',
+                      indigo: 'text-indigo-900',
+                      orange: 'text-orange-900'
+                    }[section.color] || 'text-gray-900';
 
-                {/* Recommended Investigations */}
-                {consultation.aiAgentOutput.recommended_investigations && (
-                  <div>
-                    <h4 className="font-medium text-gray-900 mb-3 flex items-center">
-                      <BeakerIcon className="h-5 w-5 mr-2 text-blue-600" />
-                      Recommended Investigations
-                    </h4>
-                    <div className="space-y-3">
-                      {consultation.aiAgentOutput.recommended_investigations.map((category: any, categoryIndex: number) => (
-                        <div key={categoryIndex} className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                          <h5 className="font-medium text-blue-900 mb-2">{category.category}</h5>
-                          <div className="space-y-2">
-                            {category.tests?.map((test: any, testIndex: number) => (
-                              <div key={testIndex} className="bg-white rounded-md p-3 border border-blue-100">
-                                <div className="flex items-center justify-between">
-                                  <span className="font-medium text-gray-900">{test.name}</span>
-                                  <span className={`px-2 py-1 text-xs rounded-full ${
-                                    test.priority === 'high' ? 'bg-red-100 text-red-800' :
-                                    test.priority === 'medium' ? 'bg-yellow-100 text-yellow-800' :
-                                    'bg-green-100 text-green-800'
-                                  }`}>
-                                    {test.priority} priority
-                                  </span>
-                                </div>
-                                {test.reason && (
-                                  <p className="text-sm text-gray-600 mt-1">{test.reason}</p>
-                                )}
-                              </div>
-                            ))}
+                    return (
+                      <div key={index}>
+                        <h4 className="font-medium text-gray-900 mb-3">{section.title}</h4>
+                        <div className={`${bgColor} border rounded-lg p-4`}>
+                          <div className={`${textColor} whitespace-pre-wrap`}>
+                            {section.content}
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Treatment Recommendations */}
-                {consultation.aiAgentOutput.treatment_recommendations && (
-                  <div>
-                    <h4 className="font-medium text-gray-900 mb-3 flex items-center">
-                      <HeartIcon className="h-5 w-5 mr-2 text-red-600" />
-                      Treatment Recommendations
-                    </h4>
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-3">
-                      {consultation.aiAgentOutput.treatment_recommendations.primary_treatment && (
-                        <div>
-                          <h5 className="font-medium text-red-900">Primary Treatment</h5>
-                          <p className="text-gray-700">{consultation.aiAgentOutput.treatment_recommendations.primary_treatment}</p>
-                        </div>
-                      )}
-                      
-                      {consultation.aiAgentOutput.treatment_recommendations.safe_medications && (
-                        <div>
-                          <h5 className="font-medium text-red-900">Safe Medications</h5>
-                          <ul className="list-disc list-inside text-gray-700 space-y-1">
-                            {consultation.aiAgentOutput.treatment_recommendations.safe_medications.map((med: any, index: number) => (
-                              <li key={index}>
-                                {typeof med === 'string' ? (
-                                  med
-                                ) : (
-                                  <div>
-                                    <span className="font-medium">{med.name || 'Unknown medication'}</span>
-                                    {med.dosage && <span className="text-sm text-gray-600 ml-2">({med.dosage})</span>}
-                                    {med.frequency && <span className="text-sm text-gray-600 ml-1">- {med.frequency}</span>}
-                                    {med.duration && <span className="text-sm text-gray-600 ml-1">for {med.duration}</span>}
-                                    {med.reason && <div className="text-xs text-gray-500 mt-1">{med.reason}</div>}
-                                    {med.notes && <div className="text-xs text-gray-500 mt-1">{med.notes}</div>}
-                                  </div>
-                                )}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Patient Education */}
-                {consultation.aiAgentOutput.patient_education && (
-                  <div>
-                    <h4 className="font-medium text-gray-900 mb-3 flex items-center">
-                      <LightBulbIcon className="h-5 w-5 mr-2 text-indigo-600" />
-                      Patient Education
-                    </h4>
-                    <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
-                      <ul className="list-disc list-inside text-gray-700 space-y-2">
-                        {consultation.aiAgentOutput.patient_education.map((item: any, index: number) => (
-                          <li key={index}>
-                            {typeof item === 'string' ? (
-                              item
-                            ) : (
-                              <div>
-                                <span className="font-medium">{item.name || item.title || 'Education item'}</span>
-                                {item.description && <div className="text-sm text-gray-600 mt-1">{item.description}</div>}
-                                {item.reason && <div className="text-xs text-gray-500 mt-1">{item.reason}</div>}
-                                {item.notes && <div className="text-xs text-gray-500 mt-1">{item.notes}</div>}
-                              </div>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-                )}
-
-                {/* Warning Signs */}
-                {consultation.aiAgentOutput.warning_signs && (
-                  <div>
-                    <h4 className="font-medium text-gray-900 mb-3 flex items-center">
-                      <ExclamationTriangleIcon className="h-5 w-5 mr-2 text-orange-600" />
-                      Warning Signs
-                    </h4>
-                    <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                      <ul className="list-disc list-inside text-gray-700 space-y-2">
-                        {consultation.aiAgentOutput.warning_signs.map((sign: any, index: number) => (
-                          <li key={index}>
-                            {typeof sign === 'string' ? (
-                              sign
-                            ) : (
-                              <div>
-                                <span className="font-medium">{sign.name || sign.title || 'Warning sign'}</span>
-                                {sign.description && <div className="text-sm text-gray-600 mt-1">{sign.description}</div>}
-                                {sign.severity && <span className="text-xs bg-red-100 text-red-800 px-1 rounded ml-2">{sign.severity}</span>}
-                                {sign.reason && <div className="text-xs text-gray-500 mt-1">{sign.reason}</div>}
-                                {sign.notes && <div className="text-xs text-gray-500 mt-1">{sign.notes}</div>}
-                              </div>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-                )}
-
-                {/* Confidence Score */}
-                {consultation.aiAgentOutput.confidence_score && (
-                  <div>
-                    <h4 className="font-medium text-gray-900 mb-3 flex items-center">
-                      <ShieldCheckIcon className="h-5 w-5 mr-2 text-green-600" />
-                      AI Confidence Score
-                    </h4>
-                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-700">Confidence Level</span>
-                        <span className="text-2xl font-bold text-green-600">
-                          {Math.round(consultation.aiAgentOutput.confidence_score * 100)}%
-                        </span>
                       </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2 mt-3">
-                        <div 
-                          className="bg-green-600 h-2 rounded-full" 
-                          style={{ width: `${consultation.aiAgentOutput.confidence_score * 100}%` }}
-                        ></div>
+                    );
+                  })}
+                  
+                  {/* Confidence Score */}
+                  {aiData.confidence_score && (
+                    <div>
+                      <h4 className="font-medium text-gray-900 mb-3 flex items-center">
+                        <ShieldCheckIcon className="h-5 w-5 mr-2 text-green-600" />
+                        AI Confidence Score
+                      </h4>
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-700">Confidence Level</span>
+                          <span className="text-2xl font-bold text-green-600">
+                            {Math.round((typeof aiData.confidence_score === 'number' ? aiData.confidence_score : 0) * 100)}%
+                          </span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2 mt-3">
+                          <div 
+                            className="bg-green-600 h-2 rounded-full" 
+                            style={{ width: `${Math.round((typeof aiData.confidence_score === 'number' ? aiData.confidence_score : 0) * 100)}%` }}
+                          ></div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
-
-          </div>
-          ) : (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-              <SparklesIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No AI Diagnosis Available</h3>
-              <p className="text-gray-600">AI diagnosis output is not available for this consultation.</p>
             </div>
           );
         } catch (renderError) {
@@ -790,21 +1120,24 @@ export const ConsultationDetailsPage: React.FC = () => {
                 <button
                   onClick={() => {
                     // Pre-populate form with current diagnosis data
-                    setDiagnosisModifications({
-                      possible_diagnoses: consultation.doctorDiagnosis.possible_diagnoses || [],
-                      clinical_reasoning: consultation.doctorDiagnosis.clinical_reasoning || '',
-                      recommended_investigations: consultation.doctorDiagnosis.recommended_investigations || [],
-                      treatment_recommendations: {
-                        primary_treatment: consultation.doctorDiagnosis.treatment_recommendations?.primary_treatment || '',
-                        safe_medications: consultation.doctorDiagnosis.treatment_recommendations?.safe_medications || [],
-                        lifestyle_modifications: consultation.doctorDiagnosis.treatment_recommendations?.lifestyle_modifications || [],
-                        dietary_advice: consultation.doctorDiagnosis.treatment_recommendations?.dietary_advice || [],
-                        follow_up_timeline: consultation.doctorDiagnosis.treatment_recommendations?.follow_up_timeline || ''
-                      },
-                      patient_education: consultation.doctorDiagnosis.patient_education || [],
-                      warning_signs: consultation.doctorDiagnosis.warning_signs || [],
-                      modificationNotes: consultation.doctorDiagnosis.modificationNotes || ''
-                    });
+                    const diagnosis = consultation.doctorDiagnosis;
+                    if (diagnosis) {
+                      setDiagnosisModifications({
+                        possible_diagnoses: diagnosis.possible_diagnoses || [],
+                        clinical_reasoning: diagnosis.clinical_reasoning || '',
+                        recommended_investigations: diagnosis.recommended_investigations || [],
+                        treatment_recommendations: {
+                          primary_treatment: diagnosis.treatment_recommendations?.primary_treatment || '',
+                          safe_medications: diagnosis.treatment_recommendations?.safe_medications || [],
+                          lifestyle_modifications: diagnosis.treatment_recommendations?.lifestyle_modifications || [],
+                          dietary_advice: diagnosis.treatment_recommendations?.dietary_advice || [],
+                          follow_up_timeline: diagnosis.treatment_recommendations?.follow_up_timeline || ''
+                        },
+                        patient_education: diagnosis.patient_education || [],
+                        warning_signs: diagnosis.warning_signs || [],
+                        modificationNotes: diagnosis.modificationNotes || ''
+                      });
+                    }
                     setIsDiagnosisEditing(true);
                   }}
                   className="bg-white bg-opacity-20 hover:bg-opacity-30 text-white px-3 py-1 rounded-md text-sm flex items-center transition-colors"
@@ -828,11 +1161,18 @@ export const ConsultationDetailsPage: React.FC = () => {
                     Possible Diagnoses
                   </h4>
                   <div className="space-y-2">
-                    {consultation.doctorDiagnosis.possible_diagnoses.map((diagnosis: string, index: number) => (
-                      <div key={index} className="bg-purple-50 border border-purple-200 rounded-lg p-3">
-                        <p className="font-medium text-purple-900">{diagnosis}</p>
-                      </div>
-                    ))}
+                    {consultation.doctorDiagnosis.possible_diagnoses.map((diagnosis: any, index: number) => {
+                      // Handle both string and object formats for safety
+                      const diagnosisText = typeof diagnosis === 'object' && diagnosis?.name 
+                        ? diagnosis.name 
+                        : (typeof diagnosis === 'string' ? diagnosis : String(diagnosis));
+                      
+                      return (
+                        <div key={index} className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                          <p className="font-medium text-purple-900">{diagnosisText}</p>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -977,6 +1317,141 @@ export const ConsultationDetailsPage: React.FC = () => {
                   </div>
                 </div>
               )}
+
+              {/* Prescription Actions Panel */}
+              <div className="mt-8 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h4 className="text-lg font-semibold text-gray-900 flex items-center">
+                      <DocumentTextIcon className="h-5 w-5 mr-2 text-blue-600" />
+                      Prescription Actions
+                    </h4>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Manage prescription workflow and consultation completion
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowPrescriptionActions(!showPrescriptionActions)}
+                    className="flex items-center text-blue-600 hover:text-blue-700 text-sm font-medium"
+                  >
+                    {showPrescriptionActions ? 'Hide Actions' : 'Show Actions'}
+                    <ChevronRightIcon className={`h-4 w-4 ml-1 transition-transform ${showPrescriptionActions ? 'rotate-90' : ''}`} />
+                  </button>
+                </div>
+
+                {showPrescriptionActions && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {/* Save Draft */}
+                    <button
+                      onClick={handleSavePrescriptionDraft}
+                      disabled={isPrescriptionActionLoading}
+                      className="group relative bg-white border border-gray-200 rounded-lg p-4 hover:border-blue-300 hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <div className="flex items-center justify-center w-12 h-12 bg-blue-100 rounded-lg mb-3 group-hover:bg-blue-200 transition-colors">
+                        <DocumentArrowDownIcon className="h-6 w-6 text-blue-600" />
+                      </div>
+                      <h5 className="font-medium text-gray-900 mb-1">Save Draft</h5>
+                      <p className="text-xs text-gray-600">Save prescription as draft for later review</p>
+                      {isPrescriptionActionLoading && (
+                        <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center rounded-lg">
+                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                        </div>
+                      )}
+                    </button>
+
+                    {/* Generate PDF Preview */}
+                    <button
+                      onClick={handleGeneratePDFPreview}
+                      disabled={isPrescriptionActionLoading}
+                      className="group relative bg-white border border-gray-200 rounded-lg p-4 hover:border-green-300 hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <div className="flex items-center justify-center w-12 h-12 bg-green-100 rounded-lg mb-3 group-hover:bg-green-200 transition-colors">
+                        <DocumentMagnifyingGlassIcon className="h-6 w-6 text-green-600" />
+                      </div>
+                      <h5 className="font-medium text-gray-900 mb-1">Preview PDF</h5>
+                      <p className="text-xs text-gray-600">Generate and download PDF preview</p>
+                      {isPrescriptionActionLoading && (
+                        <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center rounded-lg">
+                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-600"></div>
+                        </div>
+                      )}
+                    </button>
+
+                    {/* Sign and Send */}
+                    <button
+                      onClick={handleSignAndSendPrescription}
+                      disabled={isPrescriptionActionLoading}
+                      className="group relative bg-white border border-gray-200 rounded-lg p-4 hover:border-purple-300 hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <div className="flex items-center justify-center w-12 h-12 bg-purple-100 rounded-lg mb-3 group-hover:bg-purple-200 transition-colors">
+                        <CheckBadgeIcon className="h-6 w-6 text-purple-600" />
+                      </div>
+                      <h5 className="font-medium text-gray-900 mb-1">Sign & Send</h5>
+                      <p className="text-xs text-gray-600">Sign prescription and send to patient</p>
+                      {isPrescriptionActionLoading && (
+                        <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center rounded-lg">
+                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-600"></div>
+                        </div>
+                      )}
+                    </button>
+
+                    {/* Complete Consultation */}
+                    <button
+                      onClick={handleCompleteConsultation}
+                      disabled={isPrescriptionActionLoading}
+                      className="group relative bg-white border border-gray-200 rounded-lg p-4 hover:border-orange-300 hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <div className="flex items-center justify-center w-12 h-12 bg-orange-100 rounded-lg mb-3 group-hover:bg-orange-200 transition-colors">
+                        <FlagIcon className="h-6 w-6 text-orange-600" />
+                      </div>
+                      <h5 className="font-medium text-gray-900 mb-1">Complete</h5>
+                      <p className="text-xs text-gray-600">Mark consultation as completed</p>
+                      {isPrescriptionActionLoading && (
+                        <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center rounded-lg">
+                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-orange-600"></div>
+                        </div>
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                {/* Error Display */}
+                {actionError && (
+                  <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center">
+                        <ExclamationTriangleIcon className="h-5 w-5 text-red-600 mr-2" />
+                        <p className="text-sm text-red-800">{actionError}</p>
+                      </div>
+                      <button
+                        onClick={() => setActionError(null)}
+                        className="text-red-600 hover:text-red-800 text-sm font-medium"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Quick Actions Row */}
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button
+                    onClick={navigateToPrescription}
+                    className="inline-flex items-center px-4 py-2 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                  >
+                    <DocumentTextIcon className="h-4 w-4 mr-2" />
+                    Open Prescription Workspace
+                  </button>
+                  <span className="inline-flex items-center px-3 py-1 text-xs font-medium text-gray-600 bg-gray-100 rounded-full">
+                    Status: {prescriptionWorkspace?.prescriptionStatus || 'Not Available'}
+                  </span>
+                  {retryCount > 0 && (
+                    <span className="inline-flex items-center px-3 py-1 text-xs font-medium text-orange-600 bg-orange-100 rounded-full">
+                      Retries: {retryCount}
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         ) : (
@@ -997,18 +1472,180 @@ export const ConsultationDetailsPage: React.FC = () => {
 
       case 'prescription':
         return (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-            <DocumentTextIcon className="h-16 w-16 text-purple-600 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Prescription Management</h3>
-            <p className="text-gray-600 mb-6">
-              Access the full prescription workspace to manage medications, investigations, and generate prescriptions.
-            </p>
-            <button
-              onClick={navigateToPrescription}
-              className="btn-primary"
-            >
-              Open Prescription Workspace
-            </button>
+          <div className="space-y-6">
+            {consultation.doctorDiagnosis ? (
+              <>
+                {/* Prescription Status Overview */}
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                      <DocumentTextIcon className="h-5 w-5 mr-2 text-purple-600" />
+                      Prescription Status
+                    </h3>
+                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                      prescriptionWorkspace?.prescriptionStatus === 'signed' ? 'bg-green-100 text-green-800' :
+                      prescriptionWorkspace?.prescriptionStatus === 'draft' ? 'bg-blue-100 text-blue-800' :
+                      prescriptionWorkspace?.prescriptionStatus === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-gray-100 text-gray-800'
+                    }`}>
+                      {prescriptionWorkspace?.prescriptionStatus?.toUpperCase() || 'NOT AVAILABLE'}
+                    </span>
+                  </div>
+                  <p className="text-gray-600">
+                    Doctor diagnosis is complete. You can now manage the prescription workflow.
+                  </p>
+                </div>
+
+                {/* Prescription Actions Panel */}
+                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-6">
+                  <div className="flex items-center justify-between mb-6">
+                    <div>
+                      <h4 className="text-lg font-semibold text-gray-900 flex items-center">
+                        <DocumentTextIcon className="h-5 w-5 mr-2 text-blue-600" />
+                        Prescription Actions
+                      </h4>
+                      <p className="text-sm text-gray-600 mt-1">
+                        Manage prescription workflow and consultation completion
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setShowPrescriptionActions(!showPrescriptionActions)}
+                      className="flex items-center text-blue-600 hover:text-blue-700 text-sm font-medium"
+                    >
+                      {showPrescriptionActions ? 'Hide Actions' : 'Show Actions'}
+                      <ChevronRightIcon className={`h-4 w-4 ml-1 transition-transform ${showPrescriptionActions ? 'rotate-90' : ''}`} />
+                    </button>
+                  </div>
+
+                  {showPrescriptionActions && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {/* Save Draft */}
+                      <button
+                        onClick={handleSavePrescriptionDraft}
+                        disabled={isPrescriptionActionLoading}
+                        className="group relative bg-white border border-gray-200 rounded-lg p-4 hover:border-blue-300 hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <div className="flex items-center justify-center w-12 h-12 bg-blue-100 rounded-lg mb-3 group-hover:bg-blue-200 transition-colors">
+                          <DocumentArrowDownIcon className="h-6 w-6 text-blue-600" />
+                        </div>
+                        <h5 className="font-medium text-gray-900 mb-1">Save Draft</h5>
+                        <p className="text-xs text-gray-600">Save prescription as draft for later review</p>
+                        {isPrescriptionActionLoading && (
+                          <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center rounded-lg">
+                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                          </div>
+                        )}
+                      </button>
+
+                      {/* Generate PDF Preview */}
+                      <button
+                        onClick={handleGeneratePDFPreview}
+                        disabled={isPrescriptionActionLoading}
+                        className="group relative bg-white border border-gray-200 rounded-lg p-4 hover:border-green-300 hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <div className="flex items-center justify-center w-12 h-12 bg-green-100 rounded-lg mb-3 group-hover:bg-green-200 transition-colors">
+                          <DocumentMagnifyingGlassIcon className="h-6 w-6 text-green-600" />
+                        </div>
+                        <h5 className="font-medium text-gray-900 mb-1">Preview PDF</h5>
+                        <p className="text-xs text-gray-600">Generate and download PDF preview</p>
+                        {isPrescriptionActionLoading && (
+                          <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center rounded-lg">
+                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-600"></div>
+                          </div>
+                        )}
+                      </button>
+
+                      {/* Sign and Send */}
+                      <button
+                        onClick={handleSignAndSendPrescription}
+                        disabled={isPrescriptionActionLoading}
+                        className="group relative bg-white border border-gray-200 rounded-lg p-4 hover:border-purple-300 hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <div className="flex items-center justify-center w-12 h-12 bg-purple-100 rounded-lg mb-3 group-hover:bg-purple-200 transition-colors">
+                          <CheckBadgeIcon className="h-6 w-6 text-purple-600" />
+                        </div>
+                        <h5 className="font-medium text-gray-900 mb-1">Sign & Send</h5>
+                        <p className="text-xs text-gray-600">Sign prescription and send to patient</p>
+                        {isPrescriptionActionLoading && (
+                          <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center rounded-lg">
+                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-600"></div>
+                          </div>
+                        )}
+                      </button>
+
+                      {/* Complete Consultation */}
+                      <button
+                        onClick={handleCompleteConsultation}
+                        disabled={isPrescriptionActionLoading}
+                        className="group relative bg-white border border-gray-200 rounded-lg p-4 hover:border-orange-300 hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <div className="flex items-center justify-center w-12 h-12 bg-orange-100 rounded-lg mb-3 group-hover:bg-orange-200 transition-colors">
+                          <FlagIcon className="h-6 w-6 text-orange-600" />
+                        </div>
+                        <h5 className="font-medium text-gray-900 mb-1">Complete</h5>
+                        <p className="text-xs text-gray-600">Mark consultation as completed</p>
+                        {isPrescriptionActionLoading && (
+                          <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center rounded-lg">
+                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-orange-600"></div>
+                          </div>
+                        )}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Error Display */}
+                  {actionError && (
+                    <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center">
+                          <ExclamationTriangleIcon className="h-5 w-5 text-red-600 mr-2" />
+                          <p className="text-sm text-red-800">{actionError}</p>
+                        </div>
+                        <button
+                          onClick={() => setActionError(null)}
+                          className="text-red-600 hover:text-red-800 text-sm font-medium"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Quick Actions Row */}
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <button
+                      onClick={navigateToPrescription}
+                      className="inline-flex items-center px-4 py-2 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                    >
+                      <DocumentTextIcon className="h-4 w-4 mr-2" />
+                      Open Prescription Workspace
+                    </button>
+                    <span className="inline-flex items-center px-3 py-1 text-xs font-medium text-gray-600 bg-gray-100 rounded-full">
+                      Status: {prescriptionWorkspace?.prescriptionStatus || 'Not Available'}
+                    </span>
+                    {retryCount > 0 && (
+                      <span className="inline-flex items-center px-3 py-1 text-xs font-medium text-orange-600 bg-orange-100 rounded-full">
+                        Retries: {retryCount}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
+                <DocumentTextIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No Doctor Diagnosis Yet</h3>
+                <p className="text-gray-600 mb-6">
+                  Complete the doctor diagnosis first to access prescription management features.
+                </p>
+                <button
+                  onClick={() => setActiveTab('doctor-diagnosis')}
+                  className="btn-primary"
+                >
+                  Go to Doctor Diagnosis
+                </button>
+              </div>
+            )}
           </div>
         );
 
@@ -1092,6 +1729,62 @@ export const ConsultationDetailsPage: React.FC = () => {
         <div className="transition-all duration-200">
           {renderTabContent()}
         </div>
+
+        {/* Floating Action Button for Prescription Actions */}
+        {consultation.doctorDiagnosis && (
+          <div className="fixed bottom-6 right-6 z-50">
+            <div className="relative">
+              <button
+                onClick={() => setShowPrescriptionActions(!showPrescriptionActions)}
+                className="bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-full shadow-lg hover:shadow-xl transition-all duration-200 flex items-center justify-center"
+                title="Prescription Actions"
+              >
+                <DocumentTextIcon className="h-6 w-6" />
+              </button>
+              
+              {/* Quick Action Tooltips */}
+              {showPrescriptionActions && (
+                <div className="absolute bottom-full right-0 mb-2 bg-white rounded-lg shadow-xl border border-gray-200 p-2 min-w-[200px]">
+                  <div className="text-xs font-medium text-gray-700 mb-2 px-2">Quick Actions</div>
+                  <div className="space-y-1">
+                    <button
+                      onClick={handleSavePrescriptionDraft}
+                      disabled={isPrescriptionActionLoading}
+                      className="w-full text-left px-2 py-1 text-sm text-gray-700 hover:bg-blue-50 rounded disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                    >
+                      <DocumentArrowDownIcon className="h-4 w-4 mr-2 text-blue-600" />
+                      Save Draft
+                    </button>
+                    <button
+                      onClick={handleGeneratePDFPreview}
+                      disabled={isPrescriptionActionLoading}
+                      className="w-full text-left px-2 py-1 text-sm text-gray-700 hover:bg-green-50 rounded disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                    >
+                      <DocumentMagnifyingGlassIcon className="h-4 w-4 mr-2 text-green-600" />
+                      Preview PDF
+                    </button>
+                    <button
+                      onClick={handleSignAndSendPrescription}
+                      disabled={isPrescriptionActionLoading}
+                      className="w-full text-left px-2 py-1 text-sm text-gray-700 hover:bg-purple-50 rounded disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                    >
+                      <CheckBadgeIcon className="h-4 w-4 mr-2 text-purple-600" />
+                      Sign & Send
+                    </button>
+                    <button
+                      onClick={handleCompleteConsultation}
+                      disabled={isPrescriptionActionLoading}
+                      className="w-full text-left px-2 py-1 text-sm text-gray-700 hover:bg-orange-50 rounded disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                    >
+                      <FlagIcon className="h-4 w-4 mr-2 text-orange-600" />
+                      Complete
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Diagnosis Editing Modal */}
