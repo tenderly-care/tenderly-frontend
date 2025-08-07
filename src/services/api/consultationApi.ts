@@ -229,6 +229,46 @@ export const consultationApi = {
     return response.data;
   },
 
+  // Get consultation by ID with detailed information
+  getConsultationById: async (id: string): Promise<Consultation> => {
+    try {
+      // Try the direct consultation endpoint first
+      const response = await apiClient.get(`/consultations/${id}`);
+      return response.data;
+    } catch (error: any) {
+      // If direct endpoint fails, try to get it from doctor consultations list
+      if (error.response?.status === 500 || error.response?.status === 404) {
+        console.log('⚠️ Direct consultation endpoint failed, trying doctor consultations list...');
+        try {
+          const doctorConsultationsResponse = await apiClient.get('/consultations/doctor/me');
+          let consultations: Consultation[] = [];
+          
+          // Handle different response formats
+          if (doctorConsultationsResponse.data && typeof doctorConsultationsResponse.data === 'object') {
+            if ('consultations' in doctorConsultationsResponse.data && Array.isArray(doctorConsultationsResponse.data.consultations)) {
+              consultations = doctorConsultationsResponse.data.consultations;
+            } else if (Array.isArray(doctorConsultationsResponse.data)) {
+              consultations = doctorConsultationsResponse.data;
+            }
+          }
+          
+          // Find the specific consultation by ID
+          const consultation = consultations.find(c => c._id === id || c.id === id);
+          if (consultation) {
+            return consultation;
+          } else {
+            throw new Error(`Consultation with ID ${id} not found`);
+          }
+        } catch (fallbackError) {
+          console.error('❌ Fallback consultation fetch also failed:', fallbackError);
+          throw fallbackError;
+        }
+      } else {
+        throw error;
+      }
+    }
+  },
+
   // Create new consultation
   createConsultation: async (data: {
     consultationType: string;
@@ -441,4 +481,57 @@ export const consultationApi = {
     });
     return response.data;
   },
-}; 
+
+  // Prescription Management APIs
+  // Modify AI diagnosis for prescription
+  modifyAIDiagnosis: async (consultationId: string, data: {
+    diagnosis?: string;
+    modifications?: any;
+  }): Promise<any> => {
+    const response = await apiClient.post(`/consultations/${consultationId}/prescription/diagnosis/modify`, data);
+    return response.data;
+  },
+
+  // Save prescription draft
+  savePrescriptionDraft: async (consultationId: string, data: {
+    medications?: Medication[];
+    diagnosis?: string;
+    instructions?: string;
+    doctorNotes?: string;
+  }): Promise<any> => {
+    const response = await apiClient.post(`/consultations/${consultationId}/prescription/draft`, data);
+    return response.data;
+  },
+
+  // Generate prescription PDF preview
+  generatePrescriptionPreview: async (consultationId: string): Promise<{
+    previewUrl?: string;
+    pdfData?: string;
+    success: boolean;
+  }> => {
+    const response = await apiClient.post(`/consultations/${consultationId}/prescription/generate-preview`);
+    return response.data;
+  },
+
+  // Sign and send prescription
+  signAndSendPrescription: async (consultationId: string, data?: {
+    digitalSignature?: string;
+    sendMethod?: 'email' | 'sms' | 'both';
+  }): Promise<{
+    success: boolean;
+    prescriptionId?: string;
+    message?: string;
+  }> => {
+    const response = await apiClient.post(`/consultations/${consultationId}/prescription/sign-and-send`, data || {});
+    return response.data;
+  },
+
+  // Complete consultation with prescription
+  completeConsultationWithPrescription: async (consultationId: string): Promise<{
+    success: boolean;
+    message: string;
+  }> => {
+    const response = await apiClient.post(`/consultations/${consultationId}/prescription/complete-consultation`);
+    return response.data;
+  },
+};

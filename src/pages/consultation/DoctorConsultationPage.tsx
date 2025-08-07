@@ -24,6 +24,10 @@ interface ConsultationWithPatient extends Consultation {
   patientName: string;
   patientAge?: number;
   patientGender?: string;
+  symptoms: string[];
+  diagnosis: string;
+  prescription: string;
+  amount: number;
 }
 
 export const DoctorConsultationPage: React.FC = () => {
@@ -74,8 +78,9 @@ export const DoctorConsultationPage: React.FC = () => {
       }
       
       // Process consultation data to extract patient information and create display-friendly structure
-      const consultationsWithPatient: ConsultationWithPatient[] = data.map(consultation => {
-        console.log('🔍 Processing consultation:', consultation._id);
+      const consultationsWithPatient: ConsultationWithPatient[] = data.map((consultation, index) => {
+        console.log(`🔍 Processing consultation ${index + 1}:`, consultation._id);
+        console.log('🔍 Consultation object keys:', Object.keys(consultation));
         console.log('🔍 Patient info:', consultation.patientId);
         console.log('🔍 AI output:', consultation.aiAgentOutput?.primary_symptom);
         
@@ -154,30 +159,34 @@ export const DoctorConsultationPage: React.FC = () => {
             mappedPaymentStatus = 'pending';
         }
         
+        // Ensure we have a valid unique ID
+        const consultationId = consultation._id || consultation.id || `temp-${index}`;
+        console.log(`🔍 Mapped consultation ${index + 1} ID:`, consultationId);
+        
         return {
-          // Compatibility fields with null safety
-          id: consultation._id || 'unknown',
+          // Original backend fields first
+          ...consultation,
+          
+          // Override specific fields with processed values
+          id: consultationId,
           sessionId: consultation.consultationId || 'unknown',
           patientId: consultation.patientId?._id || 'unknown',
           doctorId: consultation.doctorId || 'unknown',
           consultationType: consultation.consultationType || 'chat',
           status: mappedStatus,
-          symptoms: symptoms,
-          diagnosis: diagnosis,
-          prescription: consultation.prescriptionStatus === 'completed' ? 'Available' : '',
           paymentStatus: mappedPaymentStatus,
           amount: amount,
           currency: currency,
           createdAt: consultation.createdAt || new Date().toISOString(),
           updatedAt: consultation.updatedAt || new Date().toISOString(),
           
-          // Display fields
+          // Additional computed fields
+          symptoms: symptoms,
+          diagnosis: diagnosis,
+          prescription: consultation.prescriptionStatus === 'completed' ? 'Available' : '',
           patientName: patientName,
           patientAge: patientAge,
           patientGender: undefined, // Not available in current backend response
-          
-          // Original backend fields (with null safety applied above)
-          ...consultation
         };
       });
       
@@ -283,6 +292,9 @@ export const DoctorConsultationPage: React.FC = () => {
 
   const handleCompleteConsultation = async (consultation: ConsultationWithPatient) => {
     try {
+      if (!consultation.id) {
+        throw new Error('Consultation ID is missing');
+      }
       await consultationApi.endConsultation(consultation.id);
       await loadConsultations();
     } catch (err) {
@@ -479,9 +491,15 @@ export const DoctorConsultationPage: React.FC = () => {
                 </p>
               </div>
             ) : (
-              filteredConsultations.map((consultation) => (
-                <div key={consultation.id} className="px-6 py-4 hover:bg-gray-50">
-                  <div className="flex items-center justify-between">
+              filteredConsultations.map((consultation) => {
+                console.log('🔗 Rendering consultation card with ID:', consultation.id, 'for patient:', consultation.patientName);
+                return (
+                  <div key={consultation.id} className="px-6 py-4 hover:bg-gray-50 cursor-pointer" onClick={(e) => {
+                    console.log('🔗 Card clicked for consultation ID:', consultation.id);
+                    console.log('🔗 Navigating to:', `/doctor/consultations/${consultation.id}`);
+                    navigate(`/doctor/consultations/${consultation.id}`);
+                  }}>
+                    <div className="flex items-center justify-between">
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center">
@@ -531,7 +549,7 @@ export const DoctorConsultationPage: React.FC = () => {
                     <div className="flex items-center space-x-2 ml-4">
                       {consultation.status === 'pending' && (
                         <button
-                          onClick={() => handleStartConsultation(consultation)}
+                          onClick={(e) => { e.stopPropagation(); handleStartConsultation(consultation); }}
                           className="btn-primary text-sm"
                         >
                           Start
@@ -540,7 +558,7 @@ export const DoctorConsultationPage: React.FC = () => {
                       
                       {consultation.status === 'active' && (
                         <button
-                          onClick={() => handleCompleteConsultation(consultation)}
+                          onClick={(e) => { e.stopPropagation(); handleCompleteConsultation(consultation); }}
                           className="btn-secondary text-sm"
                         >
                           Complete
@@ -549,7 +567,7 @@ export const DoctorConsultationPage: React.FC = () => {
                       
                       {consultation.status === 'completed' && !consultation.prescription && (
                         <button
-                          onClick={() => handleViewPrescription(consultation)}
+                          onClick={(e) => { e.stopPropagation(); handleViewPrescription(consultation); }}
                           className="btn-secondary text-sm flex items-center"
                         >
                           <DocumentTextIcon className="h-4 w-4 mr-1" />
@@ -559,7 +577,7 @@ export const DoctorConsultationPage: React.FC = () => {
                       
                       {consultation.prescription && (
                         <button
-                          onClick={() => handleViewPrescription(consultation)}
+                          onClick={(e) => { e.stopPropagation(); handleViewPrescription(consultation); }}
                           className="btn-primary text-sm flex items-center"
                         >
                           <EyeIcon className="h-4 w-4 mr-1" />
@@ -569,7 +587,8 @@ export const DoctorConsultationPage: React.FC = () => {
                     </div>
                   </div>
                 </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

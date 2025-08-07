@@ -17,6 +17,7 @@ import { DashboardPage } from './pages/dashboard/DashboardPage';
 import { DoctorDashboardPage } from './pages/dashboard/DoctorDashboardPage';
 import { ConsultationPage } from './pages/consultation/ConsultationPage';
 import { DoctorConsultationPage } from './pages/consultation/DoctorConsultationPage';
+import { ConsultationDetailsPage } from './pages/consultation/ConsultationDetailsPage';
 import { SymptomCollectionPage } from './pages/consultation/SymptomCollectionPage';
 import { PaymentPage } from './pages/payment/PaymentPage';
 import { PrescriptionPage } from './pages/prescription/PrescriptionPage';
@@ -165,6 +166,17 @@ function App() {
                   <ProtectedRoute>
                     <Layout>
                       <DoctorConsultationPage />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+              
+              <Route
+                path="/doctor/consultations/:id"
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <ConsultationDetailsPage />
                     </Layout>
                   </ProtectedRoute>
                 }
