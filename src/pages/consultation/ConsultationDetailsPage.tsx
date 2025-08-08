@@ -548,6 +548,60 @@ export const ConsultationDetailsPage: React.FC = () => {
     }
   };
 
+  // Utility function to safely render list items
+  const renderSafeListItem = (item: any, index: number): string => {
+    try {
+      if (typeof item === 'string') {
+        return item;
+      }
+      if (typeof item === 'object' && item !== null) {
+        // Handle medication objects with dosage, frequency, etc.
+        if (item.name && (item.dosage || item.frequency || item.duration)) {
+          const parts = [item.name];
+          if (item.dosage) parts.push(`Dosage: ${item.dosage}`);
+          if (item.frequency) parts.push(`Frequency: ${item.frequency}`);
+          if (item.duration) parts.push(`Duration: ${item.duration}`);
+          if (item.reason) parts.push(`Reason: ${item.reason}`);
+          if (item.notes) parts.push(`Notes: ${item.notes}`);
+          return parts.join(' | ');
+        }
+        // Handle diagnosis objects
+        if (item.name && typeof item.name === 'string') {
+          const parts = [item.name];
+          if (item.description) parts.push(item.description);
+          if (typeof item.confidence_score === 'number') {
+            parts.push(`(Confidence: ${Math.round(item.confidence_score * 100)}%)`);
+          }
+          return parts.join(' - ');
+        }
+        // Handle other objects by extracting meaningful properties
+        const meaningfulParts: string[] = [];
+        if (item.title) meaningfulParts.push(item.title);
+        if (item.description) meaningfulParts.push(item.description);
+        if (item.text) meaningfulParts.push(item.text);
+        if (item.value) meaningfulParts.push(String(item.value));
+        
+        if (meaningfulParts.length > 0) {
+          return meaningfulParts.join(' - ');
+        }
+        
+        // Fallback: create a string representation
+        try {
+          return Object.entries(item)
+            .filter(([_, v]) => v !== null && v !== undefined && v !== '')
+            .map(([k, v]) => `${k}: ${String(v)}`)
+            .join(' | ');
+        } catch {
+          return '[Complex Object]';
+        }
+      }
+      return String(item);
+    } catch (error) {
+      console.error('Error in renderSafeListItem:', error, 'for item:', item);
+      return '[Error rendering item]';
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -877,6 +931,17 @@ export const ConsultationDetailsPage: React.FC = () => {
                 
                 return parts.join(' - ');
               }
+              
+              // Handle medication objects with {name, dosage, frequency, duration, reason, notes}
+              if (value.name && (value.dosage || value.frequency || value.duration)) {
+                const parts: string[] = [value.name];
+                if (value.dosage) parts.push(`Dosage: ${value.dosage}`);
+                if (value.frequency) parts.push(`Frequency: ${value.frequency}`);
+                if (value.duration) parts.push(`Duration: ${value.duration}`);
+                if (value.reason) parts.push(`Reason: ${value.reason}`);
+                if (value.notes) parts.push(`Notes: ${value.notes}`);
+                return parts.join(' | ');
+              }
                 
                 // Extract other common meaningful properties
                 const meaningfulParts: string[] = [];
@@ -996,9 +1061,12 @@ export const ConsultationDetailsPage: React.FC = () => {
               treatmentContent += `Primary Treatment: ${toSafeString(aiData.treatment_recommendations.primary_treatment)}\n\n`;
             }
             
-            if (aiData.treatment_recommendations.safe_medications) {
-              treatmentContent += `Safe Medications: ${toSafeString(aiData.treatment_recommendations.safe_medications)}\n\n`;
-            }
+                      if (aiData.treatment_recommendations.safe_medications) {
+            const safeMedsContent = Array.isArray(aiData.treatment_recommendations.safe_medications)
+              ? aiData.treatment_recommendations.safe_medications.map((med: any, index: number) => renderSafeListItem(med, index)).join('\n')
+              : toSafeString(aiData.treatment_recommendations.safe_medications);
+            treatmentContent += `Safe Medications: ${safeMedsContent}\n\n`;
+          }
             
             if (treatmentContent) {
               sections.push({
@@ -1010,18 +1078,24 @@ export const ConsultationDetailsPage: React.FC = () => {
           }
 
           if (aiData.patient_education) {
+            const patientEducationContent = Array.isArray(aiData.patient_education)
+              ? aiData.patient_education.map((item: any, index: number) => renderSafeListItem(item, index)).join('\n')
+              : toSafeString(aiData.patient_education);
             sections.push({
               title: 'Patient Education',
               color: 'indigo',
-              content: toSafeString(aiData.patient_education)
+              content: patientEducationContent
             });
           }
 
           if (aiData.warning_signs) {
+            const warningSignsContent = Array.isArray(aiData.warning_signs)
+              ? aiData.warning_signs.map((sign: any, index: number) => renderSafeListItem(sign, index)).join('\n')
+              : toSafeString(aiData.warning_signs);
             sections.push({
               title: 'Warning Signs',
               color: 'orange',
-              content: toSafeString(aiData.warning_signs)
+              content: warningSignsContent
             });
           }
 
@@ -1109,8 +1183,16 @@ export const ConsultationDetailsPage: React.FC = () => {
         }
 
       case 'doctor-diagnosis':
-        return consultation.doctorDiagnosis ? (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        // Debug logging for doctor diagnosis data
+        console.log('🔍 Doctor Diagnosis Debug - checking data structure');
+        console.log('doctorDiagnosis:', consultation.doctorDiagnosis);
+        if (consultation.doctorDiagnosis?.treatment_recommendations?.safe_medications) {
+          console.log('safe_medications sample:', consultation.doctorDiagnosis.treatment_recommendations.safe_medications[0]);
+        }
+        
+        try {
+          return consultation.doctorDiagnosis ? (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-white flex items-center">
@@ -1163,9 +1245,7 @@ export const ConsultationDetailsPage: React.FC = () => {
                   <div className="space-y-2">
                     {consultation.doctorDiagnosis.possible_diagnoses.map((diagnosis: any, index: number) => {
                       // Handle both string and object formats for safety
-                      const diagnosisText = typeof diagnosis === 'object' && diagnosis?.name 
-                        ? diagnosis.name 
-                        : (typeof diagnosis === 'string' ? diagnosis : String(diagnosis));
+                      const diagnosisText = renderSafeListItem(diagnosis, index);
                       
                       return (
                         <div key={index} className="bg-purple-50 border border-purple-200 rounded-lg p-3">
@@ -1245,8 +1325,8 @@ export const ConsultationDetailsPage: React.FC = () => {
                       <div>
                         <h5 className="font-medium text-red-900 mb-2">Safe Medications</h5>
                         <ul className="list-disc list-inside text-gray-700 space-y-1">
-                          {consultation.doctorDiagnosis.treatment_recommendations.safe_medications.map((med: string, index: number) => (
-                            <li key={index}>{med}</li>
+                          {consultation.doctorDiagnosis.treatment_recommendations.safe_medications.map((med: any, index: number) => (
+                            <li key={index}>{renderSafeListItem(med, index)}</li>
                           ))}
                         </ul>
                       </div>
@@ -1256,8 +1336,8 @@ export const ConsultationDetailsPage: React.FC = () => {
                       <div>
                         <h5 className="font-medium text-red-900 mb-2">Lifestyle Modifications</h5>
                         <ul className="list-disc list-inside text-gray-700 space-y-1">
-                          {consultation.doctorDiagnosis.treatment_recommendations.lifestyle_modifications.map((mod: string, index: number) => (
-                            <li key={index}>{mod}</li>
+                          {consultation.doctorDiagnosis.treatment_recommendations.lifestyle_modifications.map((mod: any, index: number) => (
+                            <li key={index}>{renderSafeListItem(mod, index)}</li>
                           ))}
                         </ul>
                       </div>
@@ -1267,8 +1347,8 @@ export const ConsultationDetailsPage: React.FC = () => {
                       <div>
                         <h5 className="font-medium text-red-900 mb-2">Dietary Advice</h5>
                         <ul className="list-disc list-inside text-gray-700 space-y-1">
-                          {consultation.doctorDiagnosis.treatment_recommendations.dietary_advice.map((advice: string, index: number) => (
-                            <li key={index}>{advice}</li>
+                          {consultation.doctorDiagnosis.treatment_recommendations.dietary_advice.map((advice: any, index: number) => (
+                            <li key={index}>{renderSafeListItem(advice, index)}</li>
                           ))}
                         </ul>
                       </div>
@@ -1293,8 +1373,8 @@ export const ConsultationDetailsPage: React.FC = () => {
                   </h4>
                   <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
                     <ul className="list-disc list-inside text-gray-700 space-y-2">
-                      {consultation.doctorDiagnosis.patient_education.map((item: string, index: number) => (
-                        <li key={index}>{item}</li>
+                      {consultation.doctorDiagnosis.patient_education.map((item: any, index: number) => (
+                        <li key={index}>{renderSafeListItem(item, index)}</li>
                       ))}
                     </ul>
                   </div>
@@ -1310,8 +1390,8 @@ export const ConsultationDetailsPage: React.FC = () => {
                   </h4>
                   <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
                     <ul className="list-disc list-inside text-gray-700 space-y-2">
-                      {consultation.doctorDiagnosis.warning_signs.map((sign: string, index: number) => (
-                        <li key={index}>{sign}</li>
+                      {consultation.doctorDiagnosis.warning_signs.map((sign: any, index: number) => (
+                        <li key={index}>{renderSafeListItem(sign, index)}</li>
                       ))}
                     </ul>
                   </div>
@@ -1469,6 +1549,22 @@ export const ConsultationDetailsPage: React.FC = () => {
             </button>
           </div>
         );
+        } catch (renderError) {
+          console.error('Error rendering doctor diagnosis tab:', renderError);
+          return (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
+              <ExclamationTriangleIcon className="h-16 w-16 text-red-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Something went wrong</h3>
+              <p className="text-gray-600 mb-4">There was an error displaying the doctor diagnosis data.</p>
+              <button
+                onClick={() => setActiveTab('overview')}
+                className="btn-primary"
+              >
+                Go to Overview
+              </button>
+            </div>
+          );
+        }
 
       case 'prescription':
         return (
